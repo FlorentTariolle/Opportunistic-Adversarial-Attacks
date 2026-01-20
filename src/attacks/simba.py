@@ -44,6 +44,7 @@ class SimBA(BaseAttack):
         self,
         x: torch.Tensor,
         y: torch.Tensor,
+        track_confidence: bool = False,
         **kwargs
     ) -> torch.Tensor:
         """Generate adversarial examples using SimBA.
@@ -51,6 +52,7 @@ class SimBA(BaseAttack):
         Args:
             x: Input images tensor of shape (batch_size, channels, height, width).
             y: True labels tensor of shape (batch_size,).
+            track_confidence: If True, track confidence values during attack.
             **kwargs: Additional parameters (not used currently).
         
         Returns:
@@ -60,109 +62,265 @@ class SimBA(BaseAttack):
         x_adv = x.clone().to(self.device)
         y = y.to(self.device)
         
+        # Initialize confidence_history
+        self.confidence_history = None
+        
         # Process each image in the batch
-        for i in range(batch_size):
-            x_adv[i] = self._attack_single_image(x[i], y[i])
+        if track_confidence and batch_size == 1:
+            result = self._attack_single_image(
+                x[0], y[0], track_confidence=True
+            )
+            if isinstance(result, tuple) and len(result) == 2:
+                x_adv[0], self.confidence_history = result
+            else:
+                # Fallback if result is not a tuple (shouldn't happen)
+                x_adv[0] = result if not isinstance(result, tuple) else result[0]
+                self.confidence_history = None
+        else:
+            if track_confidence:
+                # If track_confidence is True but batch_size != 1, warn user
+                import warnings
+                warnings.warn(f"track_confidence=True is only supported for batch_size=1. Got batch_size={batch_size}. Confidence tracking disabled.")
+            for i in range(batch_size):
+                result = self._attack_single_image(x[i], y[i], track_confidence=False)
+                if isinstance(result, tuple):
+                    x_adv[i] = result[0]
+                else:
+                    x_adv[i] = result
         
         return x_adv
     
     def _attack_single_image(
         self,
         x: torch.Tensor,
-        y_true: torch.Tensor
-    ) -> torch.Tensor:
+        y_true: torch.Tensor,
+        track_confidence: bool = False
+    ) -> tuple:
         """Attack a single image.
         
         Args:
             x: Single image tensor of shape (channels, height, width).
             y_true: True label tensor (scalar).
+            track_confidence: If True, track confidence values during attack.
         
         Returns:
-            Adversarial image tensor.
+            If track_confidence: (adversarial image tensor, confidence_history dict)
+            Else: adversarial image tensor
         """
         x_adv = x.clone()
+        confidence_history = {'iterations': [], 'original_class': [], 'max_other_class': []}
+        
+        # Get initial confidence
+        if track_confidence:
+            with torch.no_grad():
+                logits = self.model(x_adv.unsqueeze(0))
+                probs = torch.nn.functional.softmax(logits, dim=1)
+                original_conf = probs[0][y_true].item()
+                # Get max confidence excluding original class
+                probs_excluding_original = probs[0].clone()
+                probs_excluding_original[y_true] = -1.0  # Set to -1 to exclude
+                max_other_conf = probs_excluding_original.max().item()
+                confidence_history['iterations'].append(0)
+                confidence_history['original_class'].append(original_conf)
+                confidence_history['max_other_class'].append(max_other_conf)
         
         # Check if already misclassified
         if self._is_misclassified(x_adv.unsqueeze(0), y_true.unsqueeze(0)):
+            if track_confidence:
+                return x_adv, confidence_history
             return x_adv
         
-        # Generate candidate perturbations
+        # Generate candidate indices (memory-efficient)
         if self.use_dct:
-            candidates = self._generate_dct_candidates(x)
+            candidate_indices = self._generate_dct_candidate_indices(x)
         else:
-            candidates = self._generate_pixel_candidates(x)
+            candidate_indices = self._generate_pixel_candidate_indices(x)
         
-        # Randomly shuffle candidates
-        indices = torch.randperm(len(candidates))
-        candidates = candidates[indices]
+        # Randomly shuffle candidate indices
+        num_candidates = len(candidate_indices)
+        shuffled_indices = torch.randperm(num_candidates, device=self.device)
         
         # Try each candidate perturbation
-        for iteration in range(min(self.max_iterations, len(candidates))):
-            perturbation = candidates[iteration]
+        for iteration in range(min(self.max_iterations, num_candidates)):
+            idx = shuffled_indices[iteration]
+            candidate_idx = candidate_indices[idx]
+            
+            # Generate perturbation on-the-fly
+            perturbation = self._create_perturbation(x.shape, candidate_idx)
+            
+            # Track confidence at start of iteration (before trying perturbations)
+            if track_confidence:
+                should_track = (
+                    iteration < 50 or  # Track every iteration for first 50
+                    iteration % 10 == 0  # Then every 10 iterations
+                )
+                if should_track:
+                    with torch.no_grad():
+                        logits = self.model(x_adv.unsqueeze(0))
+                        probs = torch.nn.functional.softmax(logits, dim=1)
+                        original_conf = probs[0][y_true].item()
+                        probs_excluding_original = probs[0].clone()
+                        probs_excluding_original[y_true] = -1.0
+                        max_other_conf = probs_excluding_original.max().item()
+                        confidence_history['iterations'].append(iteration + 1)
+                        confidence_history['original_class'].append(original_conf)
+                        confidence_history['max_other_class'].append(max_other_conf)
+            
+            # Get current confidence once (for efficiency)
+            with torch.no_grad():
+                logits_current = self.model(x_adv.unsqueeze(0))
+                probs_current = torch.nn.functional.softmax(logits_current, dim=1)
+                current_conf = probs_current[0][y_true].item()
+                current_pred = torch.argmax(logits_current, dim=1).item()
             
             # Try positive perturbation
             x_candidate = x_adv + perturbation
-            x_candidate = torch.clamp(x_candidate, 0.0, 1.0)
+            # For normalized images, clamp to reasonable bounds to prevent unbounded growth
+            x_candidate = torch.clamp(x_candidate, -3.0, 3.0)
+            x_candidate_batch = x_candidate.unsqueeze(0)
             
-            if self._is_misclassified(x_candidate.unsqueeze(0), y_true.unsqueeze(0)):
-                return x_candidate
+            # Check candidate in one forward pass
+            with torch.no_grad():
+                logits_candidate = self.model(x_candidate_batch)
+                probs_candidate = torch.nn.functional.softmax(logits_candidate, dim=1)
+                candidate_conf = probs_candidate[0][y_true].item()
+                candidate_pred = torch.argmax(logits_candidate, dim=1).item()
+            
+            # Check if misclassified (success!)
+            if candidate_pred != y_true.item():
+                x_adv = x_candidate
+                if track_confidence:
+                    probs_excluding_original = probs_candidate[0].clone()
+                    probs_excluding_original[y_true] = -1.0
+                    max_other_conf = probs_excluding_original.max().item()
+                    if confidence_history['iterations'] and confidence_history['iterations'][-1] == iteration + 1:
+                        confidence_history['original_class'][-1] = candidate_conf
+                        confidence_history['max_other_class'][-1] = max_other_conf
+                    else:
+                        confidence_history['iterations'].append(iteration + 1)
+                        confidence_history['original_class'].append(candidate_conf)
+                        confidence_history['max_other_class'].append(max_other_conf)
+                return x_adv, confidence_history if track_confidence else x_adv
+            
+            # Check if it reduces confidence (SimBA criterion: accept if confidence reduced)
+            if candidate_conf < current_conf:
+                x_adv = x_candidate
+                continue  # Accept this perturbation and move to next iteration
             
             # Try negative perturbation
             x_candidate = x_adv - perturbation
-            x_candidate = torch.clamp(x_candidate, 0.0, 1.0)
+            x_candidate = torch.clamp(x_candidate, -3.0, 3.0)
+            x_candidate_batch = x_candidate.unsqueeze(0)
             
-            if self._is_misclassified(x_candidate.unsqueeze(0), y_true.unsqueeze(0)):
-                return x_candidate
+            # Check candidate in one forward pass
+            with torch.no_grad():
+                logits_candidate = self.model(x_candidate_batch)
+                probs_candidate = torch.nn.functional.softmax(logits_candidate, dim=1)
+                candidate_conf = probs_candidate[0][y_true].item()
+                candidate_pred = torch.argmax(logits_candidate, dim=1).item()
             
-            # If perturbation improves confidence, keep it
-            # (This is a simplified version; full SimBA uses probability estimates)
-            x_adv = x_candidate
+            # Check if misclassified (success!)
+            if candidate_pred != y_true.item():
+                x_adv = x_candidate
+                if track_confidence:
+                    probs_excluding_original = probs_candidate[0].clone()
+                    probs_excluding_original[y_true] = -1.0
+                    max_other_conf = probs_excluding_original.max().item()
+                    if confidence_history['iterations'] and confidence_history['iterations'][-1] == iteration + 1:
+                        confidence_history['original_class'][-1] = candidate_conf
+                        confidence_history['max_other_class'][-1] = max_other_conf
+                    else:
+                        confidence_history['iterations'].append(iteration + 1)
+                        confidence_history['original_class'].append(candidate_conf)
+                        confidence_history['max_other_class'].append(max_other_conf)
+                return x_adv, confidence_history if track_confidence else x_adv
+            
+            # Check if it reduces confidence (SimBA criterion: accept if confidence reduced)
+            if candidate_conf < current_conf:
+                x_adv = x_candidate
+                continue  # Accept this perturbation and move to next iteration
         
+        if track_confidence:
+            return x_adv, confidence_history
         return x_adv
     
-    def _generate_dct_candidates(
+    def _generate_dct_candidate_indices(
         self,
         x: torch.Tensor
     ) -> torch.Tensor:
-        """Generate candidate perturbations in DCT space.
+        """Generate candidate indices in DCT space.
         
         Args:
             x: Single image tensor of shape (channels, height, width).
         
         Returns:
-            Tensor of candidate perturbations.
+            Tensor of candidate indices (channel, row, col).
         """
         # This is a simplified version - full implementation would use
         # proper DCT transforms. For now, we'll use pixel-space candidates
         # as a fallback.
-        return self._generate_pixel_candidates(x)
+        return self._generate_pixel_candidate_indices(x)
     
-    def _generate_pixel_candidates(
+    def _generate_pixel_candidate_indices(
         self,
         x: torch.Tensor
     ) -> torch.Tensor:
-        """Generate candidate perturbations in pixel space.
+        """Generate candidate indices in pixel space (memory-efficient).
         
         Args:
             x: Single image tensor of shape (channels, height, width).
         
         Returns:
-            Tensor of candidate perturbations.
+            Tensor of candidate indices of shape (num_candidates, 3) where
+            each row is (channel, row, col).
         """
         c, h, w = x.shape
-        num_candidates = h * w * c
         
-        # Create sparse perturbations (one pixel/channel at a time)
-        candidates = torch.zeros(num_candidates, c, h, w, device=self.device)
+        # Generate all (channel, row, col) combinations
+        channels = torch.arange(c, device=self.device)
+        rows = torch.arange(h, device=self.device)
+        cols = torch.arange(w, device=self.device)
         
-        idx = 0
-        for channel in range(c):
-            for row in range(h):
-                for col in range(w):
-                    candidates[idx, channel, row, col] = self.epsilon
-                    idx += 1
+        # Create meshgrid and flatten
+        ch_grid, row_grid, col_grid = torch.meshgrid(
+            channels, rows, cols, indexing='ij'
+        )
         
-        return candidates
+        # Stack and reshape to (num_candidates, 3)
+        candidate_indices = torch.stack([
+            ch_grid.flatten(),
+            row_grid.flatten(),
+            col_grid.flatten()
+        ], dim=1)
+        
+        return candidate_indices
+    
+    def _create_perturbation(
+        self,
+        shape: Tuple[int, int, int],
+        candidate_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """Create a single perturbation tensor from candidate index.
+        
+        Args:
+            shape: Image shape (channels, height, width).
+            candidate_idx: Index tensor of shape (3,) with (channel, row, col).
+        
+        Returns:
+            Perturbation tensor of the given shape.
+        """
+        c, h, w = shape
+        perturbation = torch.zeros(c, h, w, device=self.device)
+        
+        ch, row, col = candidate_idx[0].item(), candidate_idx[1].item(), candidate_idx[2].item()
+        perturbation[ch, row, col] = self.epsilon
+        
+        # Debug: Verify epsilon is being used
+        if not hasattr(self, '_epsilon_debug_logged'):
+            print(f"DEBUG: _create_perturbation using epsilon={self.epsilon}")
+            self._epsilon_debug_logged = True
+        
+        return perturbation
     
     def _is_misclassified(
         self,
@@ -182,3 +340,36 @@ class SimBA(BaseAttack):
             logits = self.model(x)
             prediction = torch.argmax(logits, dim=1)
             return (prediction != y_true).item()
+    
+    def _reduces_confidence(
+        self,
+        x_candidate: torch.Tensor,
+        x_current: torch.Tensor,
+        y_true: torch.Tensor
+    ) -> bool:
+        """Check if candidate reduces the confidence of the original class.
+        
+        This is the key SimBA criterion: accept perturbations that reduce
+        the confidence of the original class, even if they don't cause misclassification.
+        
+        Args:
+            x_candidate: Candidate image tensor of shape (1, channels, height, width).
+            x_current: Current adversarial image tensor of shape (1, channels, height, width).
+            y_true: True label tensor of shape (1,).
+        
+        Returns:
+            True if candidate reduces original class confidence, False otherwise.
+        """
+        with torch.no_grad():
+            # Get confidence for candidate
+            logits_candidate = self.model(x_candidate)
+            probs_candidate = torch.nn.functional.softmax(logits_candidate, dim=1)
+            candidate_conf = probs_candidate[0][y_true].item()
+            
+            # Get confidence for current
+            logits_current = self.model(x_current)
+            probs_current = torch.nn.functional.softmax(logits_current, dim=1)
+            current_conf = probs_current[0][y_true].item()
+            
+            # Accept if confidence is reduced
+            return candidate_conf < current_conf

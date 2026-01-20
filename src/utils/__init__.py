@@ -5,7 +5,9 @@ from .imaging import (
     preprocess_image,
     denormalize_image,
     show_image,
-    normalize_imagenet
+    normalize_imagenet,
+    get_imagenet_label,
+    get_imagenet_labels
 )
 
 __all__ = [
@@ -13,5 +15,7 @@ __all__ = [
     'preprocess_image',
     'denormalize_image',
     'show_image',
-    'normalize_imagenet'
+    'normalize_imagenet',
+    'get_imagenet_label',
+    'get_imagenet_labels'
 ]

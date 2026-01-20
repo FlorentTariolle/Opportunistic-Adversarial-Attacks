@@ -1,16 +1,61 @@
 """Image preprocessing and visualization utilities."""
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, Dict
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+import json
+import os
 
 
 # ImageNet normalization constants
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
+
+
+def get_imagenet_labels() -> Dict[int, str]:
+    """Get ImageNet class index to label mapping.
+    
+    Returns:
+        Dictionary mapping class index (int) to human-readable label (str).
+    """
+    # Try to load from a local file first
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(os.path.dirname(current_dir), 'data', 'imagenet_class_index.json')
+    
+    if os.path.exists(json_path):
+        with open(json_path, 'r') as f:
+            class_index = json.load(f)
+            # Convert from {"0": ["n01440764", "tench"], ...} to {0: "tench", ...}
+            return {int(k): v[1] for k, v in class_index.items()}
+    
+    # Fallback: return a small subset of common classes
+    # For a full mapping, download imagenet_class_index.json from:
+    # https://gist.github.com/yrevar/942d3a0ac09ec9e5eb3a
+    return {
+        281: "tabby cat",
+        117: "chambered nautilus",
+        285: "Egyptian cat",
+        282: "tiger cat",
+        0: "tench",
+        1: "goldfish",
+        2: "great white shark",
+    }
+
+
+def get_imagenet_label(class_idx: int) -> str:
+    """Get human-readable label for an ImageNet class index.
+    
+    Args:
+        class_idx: ImageNet class index (0-999).
+    
+    Returns:
+        Human-readable label string.
+    """
+    labels = get_imagenet_labels()
+    return labels.get(class_idx, f"class_{class_idx}")
 
 
 def load_image(
