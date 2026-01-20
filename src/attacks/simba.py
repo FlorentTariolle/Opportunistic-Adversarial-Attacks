@@ -12,9 +12,6 @@ class SimBA(BaseAttack):
     
     SimBA is a query-efficient black-box attack that uses random search
     in the DCT (Discrete Cosine Transform) space or pixel space.
-    
-    Reference: Guo et al., "Simple Black-box Adversarial Attacks",
-    ICML 2019.
     """
     
     def __init__(
