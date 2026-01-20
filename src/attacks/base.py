@@ -27,7 +27,16 @@ class BaseAttack(ABC):
             epsilon: Maximum perturbation magnitude (L∞ norm).
             max_iterations: Maximum number of iterations for the attack.
             device: Device to run the attack on. If None, uses model's device.
+        
+        Raises:
+            ValueError: If epsilon is negative or max_iterations is non-positive.
         """
+        # Input validation
+        if epsilon < 0:
+            raise ValueError(f"epsilon must be non-negative, got {epsilon}")
+        if max_iterations <= 0:
+            raise ValueError(f"max_iterations must be positive, got {max_iterations}")
+        
         self.model = model
         self.model.eval()
         self.epsilon = epsilon
@@ -61,13 +70,16 @@ class BaseAttack(ABC):
     def clip_perturbation(
         self,
         x: torch.Tensor,
-        perturbation: torch.Tensor
+        perturbation: torch.Tensor,
+        pixel_range: Optional[Tuple[float, float]] = None
     ) -> torch.Tensor:
         """Clip perturbation to ensure valid pixel values and epsilon constraint.
         
         Args:
             x: Original images tensor.
             perturbation: Perturbation tensor to clip.
+            pixel_range: Optional tuple (min, max) for valid pixel range.
+                        If None, assumes [0, 1] for unnormalized images.
         
         Returns:
             Clipped perturbation tensor.
@@ -75,8 +87,14 @@ class BaseAttack(ABC):
         # Clip perturbation by epsilon (L∞ norm)
         perturbation = torch.clamp(perturbation, -self.epsilon, self.epsilon)
         
-        # Clip to valid pixel range [0, 1]
-        adversarial = torch.clamp(x + perturbation, 0.0, 1.0)
+        # Clip to valid pixel range
+        if pixel_range is None:
+            # Default: assume [0, 1] range for unnormalized images
+            adversarial = torch.clamp(x + perturbation, 0.0, 1.0)
+        else:
+            # Use provided range (e.g., for normalized images)
+            min_val, max_val = pixel_range
+            adversarial = torch.clamp(x + perturbation, min_val, max_val)
         
         return adversarial - x
     

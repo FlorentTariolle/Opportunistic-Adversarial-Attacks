@@ -54,7 +54,18 @@ class SimBA(BaseAttack):
         
         Returns:
             Adversarial examples tensor.
+        
+        Raises:
+            ValueError: If input shapes are invalid or batch sizes don't match.
         """
+        # Input validation
+        if x.dim() != 4:
+            raise ValueError(f"Expected 4D tensor (batch, channels, height, width), got {x.dim()}D")
+        if y.dim() != 1:
+            raise ValueError(f"Expected 1D tensor for labels, got {y.dim()}D")
+        if x.shape[0] != y.shape[0]:
+            raise ValueError(f"Batch size mismatch: x has {x.shape[0]} samples, y has {y.shape[0]}")
+        
         batch_size = x.shape[0]
         x_adv = x.clone().to(self.device)
         y = y.to(self.device)
@@ -172,8 +183,12 @@ class SimBA(BaseAttack):
             
             # Try positive perturbation
             x_candidate = x_adv + perturbation
-            # For normalized images, clamp to reasonable bounds to prevent unbounded growth
-            x_candidate = torch.clamp(x_candidate, -3.0, 3.0)
+            # Clip perturbation to respect epsilon constraint and valid pixel range
+            # For normalized ImageNet images, use reasonable bounds
+            perturbation_clipped = self.clip_perturbation(
+                x_adv, perturbation, pixel_range=(-3.0, 3.0)
+            )
+            x_candidate = x_adv + perturbation_clipped
             x_candidate_batch = x_candidate.unsqueeze(0)
             
             # Check candidate in one forward pass
@@ -205,8 +220,12 @@ class SimBA(BaseAttack):
                 continue  # Accept this perturbation and move to next iteration
             
             # Try negative perturbation
-            x_candidate = x_adv - perturbation
-            x_candidate = torch.clamp(x_candidate, -3.0, 3.0)
+            negative_perturbation = -perturbation
+            # Clip perturbation to respect epsilon constraint and valid pixel range
+            perturbation_clipped = self.clip_perturbation(
+                x_adv, negative_perturbation, pixel_range=(-3.0, 3.0)
+            )
+            x_candidate = x_adv + perturbation_clipped
             x_candidate_batch = x_candidate.unsqueeze(0)
             
             # Check candidate in one forward pass
@@ -252,10 +271,17 @@ class SimBA(BaseAttack):
         
         Returns:
             Tensor of candidate indices (channel, row, col).
+        
+        Note:
+            Currently falls back to pixel-space candidates. A full DCT implementation
+            would transform the image to DCT space and generate candidates there.
         """
-        # This is a simplified version - full implementation would use
-        # proper DCT transforms. For now, we'll use pixel-space candidates
-        # as a fallback.
+        # TODO: Implement proper DCT-based candidate generation
+        # This would involve:
+        # 1. Apply DCT transform to image blocks
+        # 2. Generate candidate indices in DCT coefficient space
+        # 3. Return indices that can be used to modify DCT coefficients
+        # For now, we'll use pixel-space candidates as a fallback.
         return self._generate_pixel_candidate_indices(x)
     
     def _generate_pixel_candidate_indices(
@@ -305,17 +331,25 @@ class SimBA(BaseAttack):
         
         Returns:
             Perturbation tensor of the given shape.
+        
+        Raises:
+            ValueError: If candidate_idx has invalid shape or indices out of bounds.
         """
+        if candidate_idx.shape != (3,):
+            raise ValueError(f"Expected candidate_idx of shape (3,), got {candidate_idx.shape}")
+        
         c, h, w = shape
         perturbation = torch.zeros(c, h, w, device=self.device)
         
         ch, row, col = candidate_idx[0].item(), candidate_idx[1].item(), candidate_idx[2].item()
-        perturbation[ch, row, col] = self.epsilon
         
-        # Debug: Verify epsilon is being used
-        if not hasattr(self, '_epsilon_debug_logged'):
-            print(f"DEBUG: _create_perturbation using epsilon={self.epsilon}")
-            self._epsilon_debug_logged = True
+        # Validate indices are within bounds
+        if not (0 <= ch < c and 0 <= row < h and 0 <= col < w):
+            raise ValueError(
+                f"Index out of bounds: ({ch}, {row}, {col}) for shape ({c}, {h}, {w})"
+            )
+        
+        perturbation[ch, row, col] = self.epsilon
         
         return perturbation
     
@@ -338,35 +372,3 @@ class SimBA(BaseAttack):
             prediction = torch.argmax(logits, dim=1)
             return (prediction != y_true).item()
     
-    def _reduces_confidence(
-        self,
-        x_candidate: torch.Tensor,
-        x_current: torch.Tensor,
-        y_true: torch.Tensor
-    ) -> bool:
-        """Check if candidate reduces the confidence of the original class.
-        
-        This is the key SimBA criterion: accept perturbations that reduce
-        the confidence of the original class, even if they don't cause misclassification.
-        
-        Args:
-            x_candidate: Candidate image tensor of shape (1, channels, height, width).
-            x_current: Current adversarial image tensor of shape (1, channels, height, width).
-            y_true: True label tensor of shape (1,).
-        
-        Returns:
-            True if candidate reduces original class confidence, False otherwise.
-        """
-        with torch.no_grad():
-            # Get confidence for candidate
-            logits_candidate = self.model(x_candidate)
-            probs_candidate = torch.nn.functional.softmax(logits_candidate, dim=1)
-            candidate_conf = probs_candidate[0][y_true].item()
-            
-            # Get confidence for current
-            logits_current = self.model(x_current)
-            probs_current = torch.nn.functional.softmax(logits_current, dim=1)
-            current_conf = probs_current[0][y_true].item()
-            
-            # Accept if confidence is reduced
-            return candidate_conf < current_conf

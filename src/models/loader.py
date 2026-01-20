@@ -48,10 +48,20 @@ def load_pretrained_model(
         )
     
     # Load model
+    # Use weights parameter instead of deprecated pretrained parameter
     if pretrained:
-        model = model_constructors[model_name](pretrained=True)
+        # Try to use weights parameter (torchvision >= 0.13)
+        try:
+            # Use DEFAULT weights which is equivalent to pretrained=True
+            model = model_constructors[model_name](weights="DEFAULT")
+        except (TypeError, ValueError):
+            # Fallback for older torchvision versions that use pretrained parameter
+            model = model_constructors[model_name](pretrained=True)
     else:
-        model = model_constructors[model_name](pretrained=False)
+        try:
+            model = model_constructors[model_name](weights=None)
+        except (TypeError, ValueError):
+            model = model_constructors[model_name](pretrained=False)
         if num_classes is None:
             num_classes = 1000
     

@@ -70,8 +70,19 @@ def load_image(
     
     Returns:
         PIL Image object.
+    
+    Raises:
+        FileNotFoundError: If the image file doesn't exist.
+        IOError: If the image cannot be opened.
     """
-    image = Image.open(path).convert('RGB')
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Image file not found: {path}")
+    
+    try:
+        image = Image.open(path).convert('RGB')
+    except Exception as e:
+        raise IOError(f"Failed to open image {path}: {e}")
+    
     if size is not None:
         image = image.resize(size)
     return image
