@@ -35,14 +35,29 @@ _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def get_cached_model(model_name: str = 'resnet18'):
-    """Get or load a cached model."""
+    """Get or load a cached model.
+    
+    Args:
+        model_name: Name of the model to load (e.g., 'resnet18', 'vgg16').
+    
+    Returns:
+        Loaded model in eval mode.
+    """
     if model_name not in _model_cache:
         _model_cache[model_name] = get_model(model_name=model_name, device=_device)
     return _model_cache[model_name]
 
 
 def tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
-    """Convert a tensor to PIL Image."""
+    """Convert a tensor to PIL Image.
+    
+    Args:
+        tensor: Input tensor of shape (C, H, W) or (1, C, H, W), 
+                optionally normalized (values may be negative).
+    
+    Returns:
+        PIL Image with values in [0, 255] range.
+    """
     # Remove batch dimension if present
     if tensor.dim() == 4:
         tensor = tensor[0]
@@ -149,7 +164,18 @@ def create_confidence_graph(confidence_history: Optional[Dict]) -> Optional[Imag
 
 
 def predict_image(image: Image.Image, model_name: str = 'resnet18') -> Tuple[str, float, int]:
-    """Get model prediction for an image."""
+    """Get model prediction for an image.
+    
+    Args:
+        image: Input PIL Image.
+        model_name: Name of the model to use for prediction.
+    
+    Returns:
+        Tuple of (label, confidence, class_index) where:
+        - label: Human-readable class label
+        - confidence: Prediction confidence (0-1)
+        - class_index: ImageNet class index
+    """
     model = get_cached_model(model_name)
     
     # Preprocess image
@@ -175,8 +201,19 @@ def run_attack(
 ) -> Tuple[Image.Image, Image.Image, Image.Image, str]:
     """Run adversarial attack on the image.
     
+    Args:
+        image: Input PIL Image to attack.
+        method: Attack method name (e.g., 'SimBA').
+        epsilon: Maximum perturbation magnitude (L∞ norm).
+        max_iterations: Maximum number of attack iterations.
+        model_name: Name of the target model to attack.
+    
     Returns:
-        Tuple of (adversarial_image, perturbation_image, confidence_graph, result_text)
+        Tuple of (adversarial_image, perturbation_image, confidence_graph, result_text):
+        - adversarial_image: Generated adversarial example
+        - perturbation_image: Visualization of the perturbation (scaled)
+        - confidence_graph: Graph showing confidence evolution during attack
+        - result_text: Formatted text with attack results
     """
     if image is None:
         return None, None, None, "Please upload an image first."
@@ -257,7 +294,12 @@ def run_attack(
 
 
 def create_demo_interface():
-    """Create the Gradio interface."""
+    """Create the Gradio interface for the adversarial attack demonstrator.
+    
+    Returns:
+        Gradio Blocks interface with image upload, attack configuration,
+        and visualization components.
+    """
     
     with gr.Blocks(title="Adversarial Attack Demonstrator", theme=gr.themes.Soft()) as demo:
         gr.Markdown(

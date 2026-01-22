@@ -5,7 +5,14 @@ import urllib.request
 import os
 
 def download_imagenet_labels():
-    """Download ImageNet class index JSON file."""
+    """Download ImageNet class index JSON file.
+    
+    Downloads the ImageNet class index mapping from a public gist and saves it
+    to the data directory for use by the imaging utilities.
+    
+    Returns:
+        Path to the downloaded file if successful, None otherwise.
+    """
     url = "https://gist.githubusercontent.com/yrevar/942d3a0ac09ec9e5eb3a/raw/238f720ff059c1f82f368259d1ca4ffa5dd8f9f5/imagenet_class_index.json"
     
     # Get the data directory
