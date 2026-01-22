@@ -370,21 +370,18 @@ def create_demo_interface():
         )
         
         # Run attack when button is clicked
+        # Note: original_output is NOT in outputs - it stays static during attack
         def execute_attack(image, method, epsilon, max_iter, model):
             if image is None:
                 return None, None, None, "Please upload an image first."
             
-            # Ensure original is shown (preprocessed)
-            preprocessed = preprocess_image(image, device=_device)
-            original_pil = tensor_to_pil(preprocessed)
-            
             adv_image, pert_image, conf_graph, result = run_attack(image, method, epsilon, max_iter, model)
-            return original_pil, adv_image, pert_image, conf_graph, result
+            return adv_image, pert_image, conf_graph, result
         
         attack_button.click(
             fn=execute_attack,
             inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider, model_dropdown],
-            outputs=[original_output, adversarial_output, perturbation_output, confidence_graph_output, result_text]
+            outputs=[adversarial_output, perturbation_output, confidence_graph_output, result_text]
         )
         
         # Example images

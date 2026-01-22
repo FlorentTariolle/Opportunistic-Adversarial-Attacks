@@ -21,9 +21,9 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    print("🚀 Launching Adversarial Attack Demonstrator...")
-    print(f"📡 Server will be available at http://{args.host}:{args.port}")
+    print("Launching Adversarial Attack Demonstrator...")
+    print(f"Server will be available at http://{args.host}:{args.port}")
     if args.share:
-        print("🌐 Public sharing link will be generated")
+        print("Public sharing link will be generated")
     
     launch_demo(share=args.share, server_name=args.host, server_port=args.port)
