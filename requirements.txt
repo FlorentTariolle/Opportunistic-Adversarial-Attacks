@@ -5,3 +5,4 @@ matplotlib>=3.7.0
 Pillow>=10.0.0
 jupyter>=1.0.0
 notebook>=6.5.0
+gradio>=4.0.0
