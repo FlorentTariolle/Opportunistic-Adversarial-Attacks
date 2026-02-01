@@ -23,16 +23,13 @@ def get_imagenet_labels() -> Dict[int, str]:
 
     Raises:
         FileNotFoundError: If the imagenet_class_index.json file is not found.
-            Run `python src/utils/download_imagenet_labels.py` to download it.
     """
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(os.path.dirname(current_dir), 'data', 'imagenet_class_index.json')
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    json_path = os.path.join(project_root, 'data', 'imagenet_class_index.json')
 
     if not os.path.exists(json_path):
-        raise FileNotFoundError(
-            f"ImageNet class index not found at {json_path}. "
-            "Run `python src/utils/download_imagenet_labels.py` to download it."
-        )
+        raise FileNotFoundError(f"ImageNet class index not found at {json_path}.")
 
     with open(json_path, 'r') as f:
         class_index = json.load(f)
