@@ -124,42 +124,54 @@ def compute_perturbation_visualization(
     return Image.fromarray(perturbation_uint8)
 
 
-def create_confidence_graph(confidence_history: Optional[Dict]) -> Optional[Image.Image]:
+def create_confidence_graph(
+    confidence_history: Optional[Dict],
+    targeted: bool = False
+) -> Optional[Image.Image]:
     """Create a graph showing confidence evolution.
-    
+
     Args:
-        confidence_history: Dictionary with 'iterations', 'original_class', 'max_other_class' keys.
-    
+        confidence_history: Dictionary with 'iterations', 'original_class', 'max_other_class',
+                           and optionally 'target_class' keys.
+        targeted: If True, show target class confidence line.
+
     Returns:
         PIL Image of the graph, or None if no history available.
     """
     if confidence_history is None or len(confidence_history['iterations']) == 0:
         return None
-    
+
     iterations = confidence_history['iterations']
     original_conf = confidence_history['original_class']
     max_other_conf = confidence_history['max_other_class']
-    
+
     # Create figure
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(iterations, original_conf, 'b-', label='Original Class Confidence', linewidth=2)
-    ax.plot(iterations, max_other_conf, 'r-', label='Max Other Class Confidence', linewidth=2)
+    ax.plot(iterations, max_other_conf, 'r--', label='Max Other Class Confidence', linewidth=2)
+
+    # Add target class line for targeted attacks
+    if targeted and 'target_class' in confidence_history and len(confidence_history['target_class']) > 0:
+        target_conf = confidence_history['target_class']
+        ax.plot(iterations[:len(target_conf)], target_conf, 'g-', label='Target Class Confidence', linewidth=2)
+
     ax.set_xlabel('Iteration', fontsize=12)
     ax.set_ylabel('Confidence', fontsize=12)
-    ax.set_title('Confidence Evolution During Attack', fontsize=14, fontweight='bold')
+    title = 'Confidence Evolution During Targeted Attack' if targeted else 'Confidence Evolution During Attack'
+    ax.set_title(title, fontsize=14, fontweight='bold')
     ax.legend(loc='best', fontsize=10)
     ax.grid(True, alpha=0.3)
     ax.set_ylim([0, 1])
-    
+
     plt.tight_layout()
-    
+
     # Convert to PIL Image using BytesIO
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
     buf.seek(0)
     img = Image.open(buf)
     plt.close(fig)
-    
+
     return img
 
 
@@ -197,17 +209,21 @@ def run_attack(
     method: str,
     epsilon: float,
     max_iterations: int,
-    model_name: str = 'resnet18'
+    model_name: str = 'resnet18',
+    targeted: bool = False,
+    target_class: Optional[int] = None
 ) -> Tuple[Image.Image, Image.Image, Image.Image, str]:
     """Run adversarial attack on the image.
-    
+
     Args:
         image: Input PIL Image to attack.
         method: Attack method name (e.g., 'SimBA').
         epsilon: Maximum perturbation magnitude (L∞ norm).
         max_iterations: Maximum number of attack iterations.
         model_name: Name of the target model to attack.
-    
+        targeted: If True, perform targeted attack.
+        target_class: Target class index for targeted attack.
+
     Returns:
         Tuple of (adversarial_image, perturbation_image, confidence_graph, result_text):
         - adversarial_image: Generated adversarial example
@@ -248,7 +264,16 @@ def run_attack(
         
         # Run attack with confidence tracking
         y_true = torch.tensor([original_class], device=_device)
-        x_adv = attack.generate(image_tensor, y_true, track_confidence=True)
+        if targeted and target_class is not None:
+            target_tensor = torch.tensor([target_class], device=_device)
+            x_adv = attack.generate(
+                image_tensor, y_true,
+                track_confidence=True,
+                targeted=True,
+                target_class=target_tensor
+            )
+        else:
+            x_adv = attack.generate(image_tensor, y_true, track_confidence=True)
         
         # Get adversarial prediction
         with torch.no_grad():
@@ -258,23 +283,47 @@ def run_attack(
             adv_confidence = adv_probs[0][adv_class].item()
         
         adv_label = get_imagenet_label(adv_class)
-        
+
         # Check if attack was successful
-        is_successful = attack.check_adversarial(x_adv, y_true).item()
-        
+        if targeted and target_class is not None:
+            is_successful = (adv_class == target_class)
+            target_label = get_imagenet_label(target_class)
+        else:
+            is_successful = attack.check_adversarial(x_adv, y_true).item()
+
         # Convert adversarial tensor to PIL
         adv_image = tensor_to_pil(x_adv)
-        
+
         # Compute perturbation visualization
         perturbation_image = compute_perturbation_visualization(image_tensor, x_adv)
-        
+
         # Create confidence evolution graph
         confidence_graph = create_confidence_graph(
-            getattr(attack, 'confidence_history', None)
+            getattr(attack, 'confidence_history', None),
+            targeted=targeted
         )
-        
+
         # Create result message
-        result_text = f"""**Original Prediction:**
+        if targeted and target_class is not None:
+            result_text = f"""**Attack Mode:** Targeted
+
+**Original Prediction:**
+- Class: {original_class} ({original_label})
+- Confidence: {original_confidence:.2%}
+
+**Target Class:**
+- Class: {target_class} ({target_label})
+
+**Adversarial Prediction:**
+- Class: {adv_class} ({adv_label})
+- Confidence: {adv_confidence:.2%}
+
+**Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
+"""
+        else:
+            result_text = f"""**Attack Mode:** Untargeted
+
+**Original Prediction:**
 - Class: {original_class} ({original_label})
 - Confidence: {original_confidence:.2%}
 
@@ -345,7 +394,36 @@ def create_demo_interface():
                     label="Model",
                     info="Target model to attack"
                 )
-                
+
+                gr.Markdown("### Attack Mode")
+
+                attack_mode = gr.Radio(
+                    choices=["Untargeted", "Targeted"],
+                    value="Untargeted",
+                    label="Attack Mode",
+                    info="Untargeted: cause any misclassification. Targeted: force specific class."
+                )
+
+                target_class_input = gr.Number(
+                    value=0,
+                    label="Target Class (0-999)",
+                    info="ImageNet class index for targeted attack",
+                    minimum=0,
+                    maximum=999,
+                    step=1,
+                    visible=False
+                )
+
+                # Show/hide target class input based on attack mode
+                def update_target_visibility(mode):
+                    return gr.update(visible=(mode == "Targeted"))
+
+                attack_mode.change(
+                    fn=update_target_visibility,
+                    inputs=[attack_mode],
+                    outputs=[target_class_input]
+                )
+
                 attack_button = gr.Button("Run Attack", variant="primary", size="lg")
             
             with gr.Column(scale=2):
@@ -413,16 +491,23 @@ def create_demo_interface():
         
         # Run attack when button is clicked
         # Note: original_output is NOT in outputs - it stays static during attack
-        def execute_attack(image, method, epsilon, max_iter, model):
+        def execute_attack(image, method, epsilon, max_iter, model, mode, target_cls):
             if image is None:
                 return None, None, None, "Please upload an image first."
-            
-            adv_image, pert_image, conf_graph, result = run_attack(image, method, epsilon, max_iter, model)
+
+            targeted = (mode == "Targeted")
+            target_class = int(target_cls) if targeted else None
+
+            adv_image, pert_image, conf_graph, result = run_attack(
+                image, method, epsilon, max_iter, model,
+                targeted=targeted, target_class=target_class
+            )
             return adv_image, pert_image, conf_graph, result
-        
+
         attack_button.click(
             fn=execute_attack,
-            inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider, model_dropdown],
+            inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider,
+                    model_dropdown, attack_mode, target_class_input],
             outputs=[adversarial_output, perturbation_output, confidence_graph_output, result_text]
         )
         

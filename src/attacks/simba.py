@@ -46,19 +46,23 @@ class SimBA(BaseAttack):
         x: torch.Tensor,
         y: torch.Tensor,
         track_confidence: bool = False,
+        targeted: bool = False,
+        target_class: Optional[torch.Tensor] = None,
         **kwargs
     ) -> torch.Tensor:
         """Generate adversarial examples using SimBA.
-        
+
         Args:
             x: Input images tensor of shape (batch_size, channels, height, width).
             y: True labels tensor of shape (batch_size,).
             track_confidence: If True, track confidence values during attack.
+            targeted: If True, perform targeted attack towards target_class.
+            target_class: Target class tensor of shape (batch_size,). Required if targeted=True.
             **kwargs: Additional parameters (not used currently).
-        
+
         Returns:
             Adversarial examples tensor.
-        
+
         Raises:
             ValueError: If input shapes are invalid or batch sizes don't match.
         """
@@ -69,18 +73,25 @@ class SimBA(BaseAttack):
             raise ValueError(f"Expected 1D tensor for labels, got {y.dim()}D")
         if x.shape[0] != y.shape[0]:
             raise ValueError(f"Batch size mismatch: x has {x.shape[0]} samples, y has {y.shape[0]}")
-        
+        if targeted and target_class is None:
+            raise ValueError("target_class is required when targeted=True")
+        if targeted and target_class is not None and target_class.shape[0] != x.shape[0]:
+            raise ValueError(f"Batch size mismatch: x has {x.shape[0]} samples, target_class has {target_class.shape[0]}")
+
         batch_size = x.shape[0]
         x_adv = x.clone().to(self.device)
         y = y.to(self.device)
-        
+        if target_class is not None:
+            target_class = target_class.to(self.device)
+
         # Initialize confidence_history
         self.confidence_history = None
-        
+
         # Process each image in the batch
         if track_confidence and batch_size == 1:
+            t_class = target_class[0] if targeted else None
             result = self._attack_single_image(
-                x[0], y[0], track_confidence=True
+                x[0], y[0], track_confidence=True, targeted=targeted, target_class=t_class
             )
             if isinstance(result, tuple) and len(result) == 2:
                 x_adv[0], self.confidence_history = result
@@ -94,33 +105,38 @@ class SimBA(BaseAttack):
                 import warnings
                 warnings.warn(f"track_confidence=True is only supported for batch_size=1. Got batch_size={batch_size}. Confidence tracking disabled.")
             for i in range(batch_size):
-                result = self._attack_single_image(x[i], y[i], track_confidence=False)
+                t_class = target_class[i] if targeted else None
+                result = self._attack_single_image(x[i], y[i], track_confidence=False, targeted=targeted, target_class=t_class)
                 if isinstance(result, tuple):
                     x_adv[i] = result[0]
                 else:
                     x_adv[i] = result
-        
+
         return x_adv
     
     def _attack_single_image(
         self,
         x: torch.Tensor,
         y_true: torch.Tensor,
-        track_confidence: bool = False
+        track_confidence: bool = False,
+        targeted: bool = False,
+        target_class: Optional[torch.Tensor] = None
     ) -> tuple:
         """Attack a single image.
-        
+
         Args:
             x: Single image tensor of shape (channels, height, width).
             y_true: True label tensor (scalar).
             track_confidence: If True, track confidence values during attack.
-        
+            targeted: If True, perform targeted attack towards target_class.
+            target_class: Target class tensor (scalar). Required if targeted=True.
+
         Returns:
             If track_confidence: (adversarial image tensor, confidence_history dict)
             Else: adversarial image tensor
         """
         x_adv = x.clone()
-        confidence_history = {'iterations': [], 'original_class': [], 'max_other_class': []}
+        confidence_history = {'iterations': [], 'original_class': [], 'max_other_class': [], 'target_class': []}
         
         # Get initial confidence
         if track_confidence:
@@ -135,12 +151,20 @@ class SimBA(BaseAttack):
                 confidence_history['iterations'].append(0)
                 confidence_history['original_class'].append(original_conf)
                 confidence_history['max_other_class'].append(max_other_conf)
+                if targeted and target_class is not None:
+                    confidence_history['target_class'].append(probs[0][target_class].item())
         
-        # Check if already misclassified
-        if self._is_misclassified(x_adv.unsqueeze(0), y_true.unsqueeze(0)):
-            if track_confidence:
-                return x_adv, confidence_history
-            return x_adv
+        # Check if already successful (misclassified for untargeted, target class for targeted)
+        if targeted:
+            if self._is_target_class(x_adv.unsqueeze(0), target_class.unsqueeze(0)):
+                if track_confidence:
+                    return x_adv, confidence_history
+                return x_adv
+        else:
+            if self._is_misclassified(x_adv.unsqueeze(0), y_true.unsqueeze(0)):
+                if track_confidence:
+                    return x_adv, confidence_history
+                return x_adv
         
         # Generate candidate indices (memory-efficient)
         if self.use_dct:
@@ -177,6 +201,8 @@ class SimBA(BaseAttack):
                         confidence_history['iterations'].append(iteration + 1)
                         confidence_history['original_class'].append(original_conf)
                         confidence_history['max_other_class'].append(max_other_conf)
+                        if targeted and target_class is not None:
+                            confidence_history['target_class'].append(probs[0][target_class].item())
             
             # Get current confidence once (for efficiency)
             with torch.no_grad():
@@ -184,6 +210,8 @@ class SimBA(BaseAttack):
                 probs_current = torch.nn.functional.softmax(logits_current, dim=1)
                 current_conf = probs_current[0][y_true].item()
                 current_pred = torch.argmax(logits_current, dim=1).item()
+                if targeted:
+                    current_target_conf = probs_current[0][target_class].item()
             
             # Try positive perturbation
             x_candidate = x_adv + perturbation
@@ -194,16 +222,25 @@ class SimBA(BaseAttack):
             )
             x_candidate = x_adv + perturbation_clipped
             x_candidate_batch = x_candidate.unsqueeze(0)
-            
+
             # Check candidate in one forward pass
             with torch.no_grad():
                 logits_candidate = self.model(x_candidate_batch)
                 probs_candidate = torch.nn.functional.softmax(logits_candidate, dim=1)
                 candidate_conf = probs_candidate[0][y_true].item()
                 candidate_pred = torch.argmax(logits_candidate, dim=1).item()
-            
-            # Check if misclassified (success!)
-            if candidate_pred != y_true.item():
+                if targeted:
+                    candidate_target_conf = probs_candidate[0][target_class].item()
+
+            # Check success condition
+            if targeted:
+                # Targeted: success if prediction equals target class
+                pos_success = (candidate_pred == target_class.item())
+            else:
+                # Untargeted: success if misclassified
+                pos_success = (candidate_pred != y_true.item())
+
+            if pos_success:
                 x_adv = x_candidate
                 if track_confidence:
                     probs_excluding_original = probs_candidate[0].clone()
@@ -212,14 +249,25 @@ class SimBA(BaseAttack):
                     if confidence_history['iterations'] and confidence_history['iterations'][-1] == iteration + 1:
                         confidence_history['original_class'][-1] = candidate_conf
                         confidence_history['max_other_class'][-1] = max_other_conf
+                        if targeted:
+                            confidence_history['target_class'][-1] = candidate_target_conf
                     else:
                         confidence_history['iterations'].append(iteration + 1)
                         confidence_history['original_class'].append(candidate_conf)
                         confidence_history['max_other_class'].append(max_other_conf)
+                        if targeted:
+                            confidence_history['target_class'].append(candidate_target_conf)
                 return x_adv, confidence_history if track_confidence else x_adv
-            
-            # Check if it reduces confidence (SimBA criterion: accept if confidence reduced)
-            if candidate_conf < current_conf:
+
+            # Check acceptance criterion
+            # Targeted: accept if target class confidence INCREASES
+            # Untargeted: accept if true class confidence DECREASES
+            if targeted:
+                pos_accept = (candidate_target_conf > current_target_conf)
+            else:
+                pos_accept = (candidate_conf < current_conf)
+
+            if pos_accept:
                 x_adv = x_candidate
                 continue  # Accept this perturbation and move to next iteration
             
@@ -231,16 +279,25 @@ class SimBA(BaseAttack):
             )
             x_candidate = x_adv + perturbation_clipped
             x_candidate_batch = x_candidate.unsqueeze(0)
-            
+
             # Check candidate in one forward pass
             with torch.no_grad():
                 logits_candidate = self.model(x_candidate_batch)
                 probs_candidate = torch.nn.functional.softmax(logits_candidate, dim=1)
                 candidate_conf = probs_candidate[0][y_true].item()
                 candidate_pred = torch.argmax(logits_candidate, dim=1).item()
-            
-            # Check if misclassified (success!)
-            if candidate_pred != y_true.item():
+                if targeted:
+                    candidate_target_conf = probs_candidate[0][target_class].item()
+
+            # Check success condition
+            if targeted:
+                # Targeted: success if prediction equals target class
+                neg_success = (candidate_pred == target_class.item())
+            else:
+                # Untargeted: success if misclassified
+                neg_success = (candidate_pred != y_true.item())
+
+            if neg_success:
                 x_adv = x_candidate
                 if track_confidence:
                     probs_excluding_original = probs_candidate[0].clone()
@@ -249,14 +306,25 @@ class SimBA(BaseAttack):
                     if confidence_history['iterations'] and confidence_history['iterations'][-1] == iteration + 1:
                         confidence_history['original_class'][-1] = candidate_conf
                         confidence_history['max_other_class'][-1] = max_other_conf
+                        if targeted:
+                            confidence_history['target_class'][-1] = candidate_target_conf
                     else:
                         confidence_history['iterations'].append(iteration + 1)
                         confidence_history['original_class'].append(candidate_conf)
                         confidence_history['max_other_class'].append(max_other_conf)
+                        if targeted:
+                            confidence_history['target_class'].append(candidate_target_conf)
                 return x_adv, confidence_history if track_confidence else x_adv
-            
-            # Check if it reduces confidence (SimBA criterion: accept if confidence reduced)
-            if candidate_conf < current_conf:
+
+            # Check acceptance criterion
+            # Targeted: accept if target class confidence INCREASES
+            # Untargeted: accept if true class confidence DECREASES
+            if targeted:
+                neg_accept = (candidate_target_conf > current_target_conf)
+            else:
+                neg_accept = (candidate_conf < current_conf)
+
+            if neg_accept:
                 x_adv = x_candidate
                 continue  # Accept this perturbation and move to next iteration
         
@@ -592,11 +660,11 @@ class SimBA(BaseAttack):
         y_true: torch.Tensor
     ) -> bool:
         """Check if image is misclassified.
-        
+
         Args:
             x: Image tensor of shape (1, channels, height, width).
             y_true: True label tensor of shape (1,).
-        
+
         Returns:
             True if misclassified, False otherwise.
         """
@@ -604,4 +672,23 @@ class SimBA(BaseAttack):
             logits = self.model(x)
             prediction = torch.argmax(logits, dim=1)
             return (prediction != y_true).item()
+
+    def _is_target_class(
+        self,
+        x: torch.Tensor,
+        target_class: torch.Tensor
+    ) -> bool:
+        """Check if image is classified as the target class.
+
+        Args:
+            x: Image tensor of shape (1, channels, height, width).
+            target_class: Target class tensor of shape (1,).
+
+        Returns:
+            True if classified as target class, False otherwise.
+        """
+        with torch.no_grad():
+            logits = self.model(x)
+            prediction = torch.argmax(logits, dim=1)
+            return (prediction == target_class).item()
     
