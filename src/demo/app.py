@@ -20,9 +20,10 @@ if project_root not in sys.path:
 
 from src.models.loader import get_model
 from src.utils.imaging import (
-    preprocess_image, 
-    denormalize_image, 
+    preprocess_image,
+    denormalize_image,
     get_imagenet_label,
+    get_imagenet_labels,
     IMAGENET_MEAN,
     IMAGENET_STD
 )
@@ -157,7 +158,7 @@ def create_confidence_graph(
 
     ax.set_xlabel('Iteration', fontsize=12)
     ax.set_ylabel('Confidence', fontsize=12)
-    title = 'Confidence Evolution During Targeted Attack' if targeted else 'Confidence Evolution During Attack'
+    title = 'Confidence Evolution During Targeted Attack' if targeted else 'Confidence Evolution During Untargeted Attack'
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.legend(loc='best', fontsize=10)
     ax.grid(True, alpha=0.3)
@@ -303,6 +304,11 @@ def run_attack(
             targeted=targeted
         )
 
+        # Iterations used (from confidence history if available)
+        ch = getattr(attack, 'confidence_history', None)
+        iterations_used = ch['iterations'][-1] if ch and ch.get('iterations') else None
+        budget_display = f"{iterations_used} iterations / {max_iterations}" if iterations_used is not None else f"? iterations / {max_iterations}"
+
         # Create result message
         if targeted and target_class is not None:
             result_text = f"""**Attack Mode:** Targeted
@@ -318,6 +324,8 @@ def run_attack(
 - Class: {adv_class} ({adv_label})
 - Confidence: {adv_confidence:.2%}
 
+**Budget:** {budget_display}
+
 **Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
 """
         else:
@@ -330,6 +338,8 @@ def run_attack(
 **Adversarial Prediction:**
 - Class: {adv_class} ({adv_label})
 - Confidence: {adv_confidence:.2%}
+
+**Budget:** {budget_display}
 
 **Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
 """
@@ -404,24 +414,30 @@ def create_demo_interface():
                     info="Untargeted: cause any misclassification. Targeted: force specific class."
                 )
 
-                target_class_input = gr.Number(
-                    value=0,
-                    label="Target Class (0-999)",
-                    info="ImageNet class index for targeted attack",
-                    minimum=0,
-                    maximum=999,
-                    step=1,
-                    visible=False
+                # Build target class choices from ImageNet labels
+                imagenet_labels = get_imagenet_labels()
+                target_class_choices = [
+                    f"{idx}: {imagenet_labels.get(idx, f'class_{idx}')}"
+                    for idx in range(1000)
+                ]
+
+                target_class_dropdown = gr.Dropdown(
+                    choices=target_class_choices,
+                    value=target_class_choices[0],
+                    label="Target Class",
+                    info="Select the target class for targeted attack",
+                    visible=False,
+                    filterable=True
                 )
 
-                # Show/hide target class input based on attack mode
+                # Show/hide target class dropdown based on attack mode
                 def update_target_visibility(mode):
                     return gr.update(visible=(mode == "Targeted"))
 
                 attack_mode.change(
                     fn=update_target_visibility,
                     inputs=[attack_mode],
-                    outputs=[target_class_input]
+                    outputs=[target_class_dropdown]
                 )
 
                 attack_button = gr.Button("Run Attack", variant="primary", size="lg")
@@ -491,12 +507,13 @@ def create_demo_interface():
         
         # Run attack when button is clicked
         # Note: original_output is NOT in outputs - it stays static during attack
-        def execute_attack(image, method, epsilon, max_iter, model, mode, target_cls):
+        def execute_attack(image, method, epsilon, max_iter, model, mode, target_cls_str):
             if image is None:
                 return None, None, None, "Please upload an image first."
 
             targeted = (mode == "Targeted")
-            target_class = int(target_cls) if targeted else None
+            # Parse target class from dropdown string (format: "0: tench")
+            target_class = int(target_cls_str.split(":")[0]) if targeted else None
 
             adv_image, pert_image, conf_graph, result = run_attack(
                 image, method, epsilon, max_iter, model,
@@ -507,7 +524,7 @@ def create_demo_interface():
         attack_button.click(
             fn=execute_attack,
             inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider,
-                    model_dropdown, attack_mode, target_class_input],
+                    model_dropdown, attack_mode, target_class_dropdown],
             outputs=[adversarial_output, perturbation_output, confidence_graph_output, result_text]
         )
         

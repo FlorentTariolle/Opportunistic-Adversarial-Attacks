@@ -7,13 +7,13 @@ import os
 def download_imagenet_labels():
     """Download ImageNet class index JSON file.
     
-    Downloads the ImageNet class index mapping from a public gist and saves it
-    to the data directory for use by the imaging utilities.
+    Downloads the ImageNet class index mapping and saves it to the data
+    directory for use by the imaging utilities.
     
     Returns:
         Path to the downloaded file if successful, None otherwise.
     """
-    url = "https://gist.githubusercontent.com/yrevar/942d3a0ac09ec9e5eb3a/raw/238f720ff059c1f82f368259d1ca4ffa5dd8f9f5/imagenet_class_index.json"
+    url = "https://storage.googleapis.com/download.tensorflow.org/data/imagenet_class_index.json"
     
     # Get the data directory
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,7 +30,7 @@ def download_imagenet_labels():
     except Exception as e:
         print(f"Error downloading: {e}")
         print("You can manually download the file from:")
-        print("https://gist.githubusercontent.com/yrevar/942d3a0ac09ec9e5eb3a/raw/238f720ff059c1f82f368259d1ca4ffa5dd8f9f5/imagenet_class_index.json")
+        print(url)
         print(f"And save it to: {output_path}")
         return None
 

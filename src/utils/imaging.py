@@ -17,32 +17,27 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 def get_imagenet_labels() -> Dict[int, str]:
     """Get ImageNet class index to label mapping.
-    
+
     Returns:
         Dictionary mapping class index (int) to human-readable label (str).
+
+    Raises:
+        FileNotFoundError: If the imagenet_class_index.json file is not found.
+            Run `python src/utils/download_imagenet_labels.py` to download it.
     """
-    # Try to load from a local file first
     current_dir = os.path.dirname(os.path.abspath(__file__))
     json_path = os.path.join(os.path.dirname(current_dir), 'data', 'imagenet_class_index.json')
-    
-    if os.path.exists(json_path):
-        with open(json_path, 'r') as f:
-            class_index = json.load(f)
-            # Convert from {"0": ["n01440764", "tench"], ...} to {0: "tench", ...}
-            return {int(k): v[1] for k, v in class_index.items()}
-    
-    # Fallback: return a small subset of common classes
-    # For a full mapping, download imagenet_class_index.json from:
-    # https://gist.github.com/yrevar/942d3a0ac09ec9e5eb3a
-    return {
-        281: "tabby cat",
-        117: "chambered nautilus",
-        285: "Egyptian cat",
-        282: "tiger cat",
-        0: "tench",
-        1: "goldfish",
-        2: "great white shark",
-    }
+
+    if not os.path.exists(json_path):
+        raise FileNotFoundError(
+            f"ImageNet class index not found at {json_path}. "
+            "Run `python src/utils/download_imagenet_labels.py` to download it."
+        )
+
+    with open(json_path, 'r') as f:
+        class_index = json.load(f)
+        # Convert from {"0": ["n01440764", "tench"], ...} to {0: "tench", ...}
+        return {int(k): v[1] for k, v in class_index.items()}
 
 
 def get_imagenet_label(class_idx: int) -> str:
