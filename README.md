@@ -4,7 +4,7 @@ Interactive web demo for generating adversarial examples that fool image classif
 
 ## What is this?
 
-Upload an image and generate imperceptible perturbations that cause neural networks to misclassify it (untargeted attack), demonstrating the vulnerability of deep learning models to adversarial attacks.
+Upload an image and generate imperceptible perturbations that cause neural networks to misclassify it, demonstrating the vulnerability of deep learning models to adversarial attacks.
 
 ## How to Run
 
