@@ -48,6 +48,7 @@ class SimBA(BaseAttack):
         track_confidence: bool = False,
         targeted: bool = False,
         target_class: Optional[torch.Tensor] = None,
+        early_stop: bool = True,
         **kwargs
     ) -> torch.Tensor:
         """Generate adversarial examples using SimBA.
@@ -58,6 +59,7 @@ class SimBA(BaseAttack):
             track_confidence: If True, track confidence values during attack.
             targeted: If True, perform targeted attack towards target_class.
             target_class: Target class tensor of shape (batch_size,). Required if targeted=True.
+            early_stop: If True, stop as soon as the attack succeeds. If False, run all max_iterations.
             **kwargs: Additional parameters (not used currently).
 
         Returns:
@@ -91,7 +93,8 @@ class SimBA(BaseAttack):
         if track_confidence and batch_size == 1:
             t_class = target_class[0] if targeted else None
             result = self._attack_single_image(
-                x[0], y[0], track_confidence=True, targeted=targeted, target_class=t_class
+                x[0], y[0], track_confidence=True, targeted=targeted, target_class=t_class,
+                early_stop=early_stop
             )
             if isinstance(result, tuple) and len(result) == 2:
                 x_adv[0], self.confidence_history = result
@@ -106,7 +109,7 @@ class SimBA(BaseAttack):
                 warnings.warn(f"track_confidence=True is only supported for batch_size=1. Got batch_size={batch_size}. Confidence tracking disabled.")
             for i in range(batch_size):
                 t_class = target_class[i] if targeted else None
-                result = self._attack_single_image(x[i], y[i], track_confidence=False, targeted=targeted, target_class=t_class)
+                result = self._attack_single_image(x[i], y[i], track_confidence=False, targeted=targeted, target_class=t_class, early_stop=early_stop)
                 if isinstance(result, tuple):
                     x_adv[i] = result[0]
                 else:
@@ -120,7 +123,8 @@ class SimBA(BaseAttack):
         y_true: torch.Tensor,
         track_confidence: bool = False,
         targeted: bool = False,
-        target_class: Optional[torch.Tensor] = None
+        target_class: Optional[torch.Tensor] = None,
+        early_stop: bool = True
     ) -> tuple:
         """Attack a single image.
 
@@ -130,6 +134,7 @@ class SimBA(BaseAttack):
             track_confidence: If True, track confidence values during attack.
             targeted: If True, perform targeted attack towards target_class.
             target_class: Target class tensor (scalar). Required if targeted=True.
+            early_stop: If False, run all max_iterations without returning on success.
 
         Returns:
             If track_confidence: (adversarial image tensor, confidence_history dict)
@@ -155,16 +160,18 @@ class SimBA(BaseAttack):
                     confidence_history['target_class'].append(probs[0][target_class].item())
         
         # Check if already successful (misclassified for untargeted, target class for targeted)
-        if targeted:
-            if self._is_target_class(x_adv.unsqueeze(0), target_class.unsqueeze(0)):
-                if track_confidence:
-                    return x_adv, confidence_history
-                return x_adv
-        else:
-            if self._is_misclassified(x_adv.unsqueeze(0), y_true.unsqueeze(0)):
-                if track_confidence:
-                    return x_adv, confidence_history
-                return x_adv
+        # Skip when early_stop=False so we run the full budget (e.g. fixed 100 untargeted iters)
+        if early_stop:
+            if targeted:
+                if self._is_target_class(x_adv.unsqueeze(0), target_class.unsqueeze(0)):
+                    if track_confidence:
+                        return x_adv, confidence_history
+                    return x_adv
+            else:
+                if self._is_misclassified(x_adv.unsqueeze(0), y_true.unsqueeze(0)):
+                    if track_confidence:
+                        return x_adv, confidence_history
+                    return x_adv
         
         # Generate candidate indices (memory-efficient)
         if self.use_dct:
@@ -257,7 +264,9 @@ class SimBA(BaseAttack):
                         confidence_history['max_other_class'].append(max_other_conf)
                         if targeted:
                             confidence_history['target_class'].append(candidate_target_conf)
-                return x_adv, confidence_history if track_confidence else x_adv
+                if early_stop:
+                    return x_adv, confidence_history if track_confidence else x_adv
+                continue
 
             # Check acceptance criterion
             # Targeted: accept if target class confidence INCREASES
@@ -314,7 +323,9 @@ class SimBA(BaseAttack):
                         confidence_history['max_other_class'].append(max_other_conf)
                         if targeted:
                             confidence_history['target_class'].append(candidate_target_conf)
-                return x_adv, confidence_history if track_confidence else x_adv
+                if early_stop:
+                    return x_adv, confidence_history if track_confidence else x_adv
+                continue
 
             # Check acceptance criterion
             # Targeted: accept if target class confidence INCREASES
@@ -328,6 +339,10 @@ class SimBA(BaseAttack):
                 x_adv = x_candidate
                 continue  # Accept this perturbation and move to next iteration
         
+        # Exhausted loop: record final iteration count for benchmarking
+        num_done = min(self.max_iterations, num_candidates)
+        if track_confidence and (not confidence_history['iterations'] or confidence_history['iterations'][-1] != num_done):
+            confidence_history['iterations'].append(num_done)
         if track_confidence:
             return x_adv, confidence_history
         return x_adv
