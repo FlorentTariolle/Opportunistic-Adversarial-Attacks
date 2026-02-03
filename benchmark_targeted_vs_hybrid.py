@@ -1,15 +1,15 @@
 """
 Mini-benchmark: Targeted direct vs. Hybrid (100 untargeted + targeted)
 
-Compare deux approches pour atteindre la classe cible 285 :
-1. Direct : Attaque targeted directement
-2. Hybride : 100 itérations untargeted puis targeted depuis l'image perturbée
+Compare two approaches to reach target class 285:
+1. Direct: Targeted attack from the original image
+2. Hybrid: 100 untargeted iterations then targeted from the perturbed image
 
-Paramètres :
-- Epsilon : 0.5, 1.25, 2.0
-- Seeds : 3 par configuration
-- Budget max : 2000 itérations
-- Critère de succès : classe 285 devient top-1
+Parameters:
+- Epsilon: 0.5, 1.25, 2.0
+- Seeds: 3 per configuration
+- Max budget: 2000 iterations
+- Success criterion: class 285 becomes top-1
 """
 
 import torch
@@ -21,7 +21,7 @@ from src.attacks import SimBA
 
 
 def set_seed(seed: int):
-    """Fixe toutes les seeds pour reproductibilité."""
+    """Fix all seeds for reproducibility."""
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -31,8 +31,8 @@ def set_seed(seed: int):
 
 def run_targeted_attack(model, image_tensor, true_class, target_class, epsilon, max_iter, device):
     """
-    Lance une attaque targeted et retourne le nombre d'itérations.
-    Retourne (iterations, success).
+    Run a targeted attack and return the number of iterations.
+    Returns (iterations, success).
     """
     attack = SimBA(
         model=model,
@@ -53,14 +53,14 @@ def run_targeted_attack(model, image_tensor, true_class, target_class, epsilon, 
         target_class=target_tensor
     )
 
-    # Vérifier le succès
+    # Check success
     with torch.no_grad():
         adv_logits = model(x_adv)
         adv_class = torch.argmax(adv_logits, dim=1).item()
 
     success = (adv_class == target_class)
 
-    # Récupérer le nombre d'itérations effectuées (en échec = budget max)
+    # Get iteration count (on failure = max budget)
     if attack.confidence_history and attack.confidence_history['iterations']:
         iterations = attack.confidence_history['iterations'][-1]
     else:
@@ -73,9 +73,9 @@ def run_targeted_attack(model, image_tensor, true_class, target_class, epsilon, 
 
 def run_untargeted_attack(model, image_tensor, true_class, epsilon, max_iter, device, fixed_iterations=False):
     """
-    Lance une attaque untargeted et retourne l'image perturbée.
-    Si fixed_iterations=True, exécute exactement max_iter itérations (pas d'arrêt anticipé).
-    Retourne (x_adv, iterations).
+    Run an untargeted attack and return the perturbed image.
+    If fixed_iterations=True, run exactly max_iter iterations (no early stopping).
+    Returns (x_adv, iterations).
     """
     attack = SimBA(
         model=model,
@@ -95,7 +95,7 @@ def run_untargeted_attack(model, image_tensor, true_class, epsilon, max_iter, de
         early_stop=not fixed_iterations
     )
 
-    # Récupérer le nombre d'itérations effectuées
+    # Get iteration count
     if attack.confidence_history and attack.confidence_history['iterations']:
         iterations = attack.confidence_history['iterations'][-1]
     else:
@@ -106,22 +106,22 @@ def run_untargeted_attack(model, image_tensor, true_class, epsilon, max_iter, de
 
 def run_hybrid_attack(model, image_tensor, true_class, target_class, epsilon, untargeted_iter, max_targeted_iter, device):
     """
-    Lance 100 itérations untargeted puis targeted depuis l'image perturbée.
-    Retourne (total_iterations, success).
+    Run untargeted_iter untargeted iterations then targeted from the perturbed image.
+    Returns (total_iterations, success).
     """
-    # Phase 1 : Untargeted (exactement untargeted_iter itérations, pas d'arrêt anticipé)
+    # Phase 1: Untargeted (exactly untargeted_iter iterations, no early stop)
     x_perturbed, untargeted_done = run_untargeted_attack(
         model, image_tensor, true_class, epsilon, untargeted_iter, device,
         fixed_iterations=True
     )
 
-    # Phase 2 : Targeted depuis l'image perturbée
-    # On doit récupérer la classe actuelle de l'image perturbée pour y_true
+    # Phase 2: Targeted from the perturbed image
+    # Get current class of perturbed image for y_true
     with torch.no_grad():
         perturbed_logits = model(x_perturbed)
         current_class = torch.argmax(perturbed_logits, dim=1).item()
 
-    # Vérifier si on a déjà atteint la cible par hasard
+    # Check if target was already reached by chance
     if current_class == target_class:
         return untargeted_iter, True
 
@@ -129,14 +129,14 @@ def run_hybrid_attack(model, image_tensor, true_class, target_class, epsilon, un
         model, x_perturbed, current_class, target_class, epsilon, max_targeted_iter, device
     )
 
-    # Total = 100 untargeted + iterations targeted
+    # Total = untargeted iterations + targeted iterations
     total_iterations = untargeted_iter + targeted_iter
 
     return total_iterations, success
 
 
 def main():
-    # Configuration
+    # Config
     TARGET_CLASS = 285
     EPSILONS = [0.5, 1.25, 2.0]
     SEEDS = [42, 123, 456]
@@ -154,14 +154,14 @@ def main():
     print(f"Untargeted warmup: {UNTARGETED_ITERATIONS} iterations")
     print("=" * 70)
 
-    # Charger le modèle
+    # Load model
     model = get_model('resnet18', device=device)
 
-    # Charger l'image
+    # Load image
     image = load_image(IMAGE_PATH)
     image_tensor = preprocess_image(image, normalize=True, device=device)
 
-    # Obtenir la classe originale
+    # Get original class
     with torch.no_grad():
         logits = model(image_tensor)
         original_class = torch.argmax(logits, dim=1).item()
@@ -169,7 +169,7 @@ def main():
     print(f"Original class: {original_class} ({get_imagenet_label(original_class)})")
     print("=" * 70)
 
-    # Résultats
+    # Results
     results = {eps: {'direct': [], 'hybrid': []} for eps in EPSILONS}
 
     for epsilon in EPSILONS:
@@ -180,7 +180,7 @@ def main():
         for seed in SEEDS:
             print(f"\n--- Seed {seed} ---")
 
-            # Approche directe
+            # Direct approach
             set_seed(seed)
             direct_iter, direct_success = run_targeted_attack(
                 model, image_tensor, original_class, TARGET_CLASS,
@@ -190,7 +190,7 @@ def main():
             status_direct = "OK" if direct_success else "FAIL"
             print(f"Direct targeted:  {direct_iter:4d} iterations [{status_direct}]")
 
-            # Approche hybride
+            # Hybrid approach
             set_seed(seed)
             hybrid_iter, hybrid_success = run_hybrid_attack(
                 model, image_tensor, original_class, TARGET_CLASS,
@@ -200,21 +200,21 @@ def main():
             status_hybrid = "OK" if hybrid_success else "FAIL"
             print(f"Hybrid (100+targeted): {hybrid_iter:4d} iterations [{status_hybrid}]")
 
-            # Comparaison
+            # Comparison
             diff = hybrid_iter - direct_iter
             if diff < 0:
-                print(f"  -> Hybride GAGNE {-diff} itérations")
+                print(f"  -> Hybrid wins by {-diff} iterations")
             elif diff > 0:
-                print(f"  -> Direct GAGNE {diff} itérations")
+                print(f"  -> Direct wins by {diff} iterations")
             else:
-                print(f"  -> Égalité")
+                print(f"  -> Tie")
 
-    # Résumé
+    # Summary
     print("\n")
     print("=" * 70)
-    print("RÉSUMÉ")
+    print("SUMMARY")
     print("=" * 70)
-    print(f"{'Epsilon':<10} {'Méthode':<20} {'Moyenne':<12} {'Succès':<10}")
+    print(f"{'Epsilon':<10} {'Method':<20} {'Mean':<12} {'Success':<10}")
     print("-" * 70)
 
     for epsilon in EPSILONS:
@@ -231,9 +231,9 @@ def main():
 
         diff = avg_hybrid - avg_direct
         if diff < 0:
-            print(f"{'':<10} -> Hybride gagne en moyenne {-diff:.1f} itérations")
+            print(f"{'':<10} -> Hybrid wins by {abs(diff):.1f} iterations on average")
         else:
-            print(f"{'':<10} -> Direct gagne en moyenne {diff:.1f} itérations")
+            print(f"{'':<10} -> Direct wins by {diff:.1f} iterations on average")
         print()
 
 
