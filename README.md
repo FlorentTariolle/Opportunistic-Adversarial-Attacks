@@ -1,4 +1,4 @@
-# Adversarial-BlackBox-Demo
+# ImageNet-Adversarial-Demonstrator
 
 Interactive web demo for generating adversarial examples that fool image classification models using black-box attacks (SimBA).
 
