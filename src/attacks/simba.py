@@ -49,6 +49,8 @@ class SimBA(BaseAttack):
         targeted: bool = False,
         target_class: Optional[torch.Tensor] = None,
         early_stop: bool = True,
+        opportunistic: bool = False,
+        stability_threshold: int = 30,
         **kwargs
     ) -> torch.Tensor:
         """Generate adversarial examples using SimBA.
@@ -60,6 +62,8 @@ class SimBA(BaseAttack):
             targeted: If True, perform targeted attack towards target_class.
             target_class: Target class tensor of shape (batch_size,). Required if targeted=True.
             early_stop: If True, stop as soon as the attack succeeds. If False, run all max_iterations.
+            opportunistic: If True, start untargeted and switch to targeted when max class stabilizes.
+            stability_threshold: Number of consecutive accepted perturbations with same max class before switching.
             **kwargs: Additional parameters (not used currently).
 
         Returns:
@@ -79,6 +83,8 @@ class SimBA(BaseAttack):
             raise ValueError("target_class is required when targeted=True")
         if targeted and target_class is not None and target_class.shape[0] != x.shape[0]:
             raise ValueError(f"Batch size mismatch: x has {x.shape[0]} samples, target_class has {target_class.shape[0]}")
+        if opportunistic and targeted:
+            raise ValueError("opportunistic=True cannot be combined with targeted=True (opportunistic starts untargeted)")
 
         batch_size = x.shape[0]
         x_adv = x.clone().to(self.device)
@@ -94,7 +100,7 @@ class SimBA(BaseAttack):
             t_class = target_class[0] if targeted else None
             result = self._attack_single_image(
                 x[0], y[0], track_confidence=True, targeted=targeted, target_class=t_class,
-                early_stop=early_stop
+                early_stop=early_stop, opportunistic=opportunistic, stability_threshold=stability_threshold
             )
             if isinstance(result, tuple) and len(result) == 2:
                 x_adv[0], self.confidence_history = result
@@ -109,7 +115,7 @@ class SimBA(BaseAttack):
                 warnings.warn(f"track_confidence=True is only supported for batch_size=1. Got batch_size={batch_size}. Confidence tracking disabled.")
             for i in range(batch_size):
                 t_class = target_class[i] if targeted else None
-                result = self._attack_single_image(x[i], y[i], track_confidence=False, targeted=targeted, target_class=t_class, early_stop=early_stop)
+                result = self._attack_single_image(x[i], y[i], track_confidence=False, targeted=targeted, target_class=t_class, early_stop=early_stop, opportunistic=opportunistic, stability_threshold=stability_threshold)
                 if isinstance(result, tuple):
                     x_adv[i] = result[0]
                 else:
@@ -124,7 +130,9 @@ class SimBA(BaseAttack):
         track_confidence: bool = False,
         targeted: bool = False,
         target_class: Optional[torch.Tensor] = None,
-        early_stop: bool = True
+        early_stop: bool = True,
+        opportunistic: bool = False,
+        stability_threshold: int = 30
     ) -> tuple:
         """Attack a single image.
 
@@ -135,13 +143,28 @@ class SimBA(BaseAttack):
             targeted: If True, perform targeted attack towards target_class.
             target_class: Target class tensor (scalar). Required if targeted=True.
             early_stop: If False, run all max_iterations without returning on success.
+            opportunistic: If True, start untargeted and switch to targeted when max class stabilizes.
+            stability_threshold: Number of consecutive accepted perturbations with same max class before switching.
 
         Returns:
             If track_confidence: (adversarial image tensor, confidence_history dict)
             Else: adversarial image tensor
         """
         x_adv = x.clone()
-        confidence_history = {'iterations': [], 'original_class': [], 'max_other_class': [], 'target_class': []}
+        confidence_history = {
+            'iterations': [],
+            'original_class': [],
+            'max_other_class': [],
+            'target_class': [],
+            'switch_iteration': None  # Iteration when opportunistic mode switched to targeted
+        }
+
+        # Opportunistic targeting state
+        if opportunistic:
+            stability_counter = 0
+            prev_max_class = None
+            switched_to_targeted = False
+            switch_iteration = None
         
         # Get initial confidence
         if track_confidence:
@@ -264,6 +287,23 @@ class SimBA(BaseAttack):
                         confidence_history['max_other_class'].append(max_other_conf)
                         if targeted:
                             confidence_history['target_class'].append(candidate_target_conf)
+                # Opportunistic stability check
+                if opportunistic and not switched_to_targeted:
+                    probs_excluding_true = probs_candidate[0].clone()
+                    probs_excluding_true[y_true] = -1.0
+                    current_max_class = torch.argmax(probs_excluding_true).item()
+                    if prev_max_class is not None and current_max_class == prev_max_class:
+                        stability_counter += 1
+                        if stability_counter >= stability_threshold:
+                            targeted = True
+                            target_class = torch.tensor(current_max_class, device=self.device)
+                            current_target_conf = probs_candidate[0][target_class].item()
+                            switched_to_targeted = True
+                            switch_iteration = iteration + 1
+                            confidence_history['switch_iteration'] = switch_iteration
+                    else:
+                        stability_counter = 0
+                    prev_max_class = current_max_class
                 if early_stop:
                     return x_adv, confidence_history if track_confidence else x_adv
                 continue
@@ -278,8 +318,25 @@ class SimBA(BaseAttack):
 
             if pos_accept:
                 x_adv = x_candidate
+                # Opportunistic stability check
+                if opportunistic and not switched_to_targeted:
+                    probs_excluding_true = probs_candidate[0].clone()
+                    probs_excluding_true[y_true] = -1.0
+                    current_max_class = torch.argmax(probs_excluding_true).item()
+                    if prev_max_class is not None and current_max_class == prev_max_class:
+                        stability_counter += 1
+                        if stability_counter >= stability_threshold:
+                            targeted = True
+                            target_class = torch.tensor(current_max_class, device=self.device)
+                            current_target_conf = probs_candidate[0][target_class].item()
+                            switched_to_targeted = True
+                            switch_iteration = iteration + 1
+                            confidence_history['switch_iteration'] = switch_iteration
+                    else:
+                        stability_counter = 0
+                    prev_max_class = current_max_class
                 continue  # Accept this perturbation and move to next iteration
-            
+
             # Try negative perturbation
             negative_perturbation = -perturbation
             # Clip perturbation to respect epsilon constraint and valid pixel range
@@ -323,6 +380,23 @@ class SimBA(BaseAttack):
                         confidence_history['max_other_class'].append(max_other_conf)
                         if targeted:
                             confidence_history['target_class'].append(candidate_target_conf)
+                # Opportunistic stability check
+                if opportunistic and not switched_to_targeted:
+                    probs_excluding_true = probs_candidate[0].clone()
+                    probs_excluding_true[y_true] = -1.0
+                    current_max_class = torch.argmax(probs_excluding_true).item()
+                    if prev_max_class is not None and current_max_class == prev_max_class:
+                        stability_counter += 1
+                        if stability_counter >= stability_threshold:
+                            targeted = True
+                            target_class = torch.tensor(current_max_class, device=self.device)
+                            current_target_conf = probs_candidate[0][target_class].item()
+                            switched_to_targeted = True
+                            switch_iteration = iteration + 1
+                            confidence_history['switch_iteration'] = switch_iteration
+                    else:
+                        stability_counter = 0
+                    prev_max_class = current_max_class
                 if early_stop:
                     return x_adv, confidence_history if track_confidence else x_adv
                 continue
@@ -337,6 +411,23 @@ class SimBA(BaseAttack):
 
             if neg_accept:
                 x_adv = x_candidate
+                # Opportunistic stability check
+                if opportunistic and not switched_to_targeted:
+                    probs_excluding_true = probs_candidate[0].clone()
+                    probs_excluding_true[y_true] = -1.0
+                    current_max_class = torch.argmax(probs_excluding_true).item()
+                    if prev_max_class is not None and current_max_class == prev_max_class:
+                        stability_counter += 1
+                        if stability_counter >= stability_threshold:
+                            targeted = True
+                            target_class = torch.tensor(current_max_class, device=self.device)
+                            current_target_conf = probs_candidate[0][target_class].item()
+                            switched_to_targeted = True
+                            switch_iteration = iteration + 1
+                            confidence_history['switch_iteration'] = switch_iteration
+                    else:
+                        stability_counter = 0
+                    prev_max_class = current_max_class
                 continue  # Accept this perturbation and move to next iteration
         
         # Exhausted loop: record final iteration count for benchmarking
