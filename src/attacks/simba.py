@@ -156,7 +156,9 @@ class SimBA(BaseAttack):
             'original_class': [],
             'max_other_class': [],
             'target_class': [],
-            'switch_iteration': None  # Iteration when opportunistic mode switched to targeted
+            'switch_iteration': None,  # Iteration when opportunistic mode switched to targeted
+            'top_classes': [],  # List of dicts {class_id: confidence} for top 10 classes (opportunistic only)
+            'locked_class': None  # Class ID that was locked (opportunistic only)
         }
 
         # Opportunistic targeting state
@@ -181,6 +183,11 @@ class SimBA(BaseAttack):
                 confidence_history['max_other_class'].append(max_other_conf)
                 if targeted and target_class is not None:
                     confidence_history['target_class'].append(probs[0][target_class].item())
+                # Track top 10 classes for opportunistic mode (before locking)
+                if opportunistic:
+                    top10_indices = torch.topk(probs_excluding_original, k=10).indices.tolist()
+                    top10_conf = {idx: probs[0][idx].item() for idx in top10_indices}
+                    confidence_history['top_classes'].append(top10_conf)
         
         # Check if already successful (misclassified for untargeted, target class for targeted)
         # Skip when early_stop=False so we run the full budget (e.g. fixed 100 untargeted iters)
@@ -233,6 +240,11 @@ class SimBA(BaseAttack):
                         confidence_history['max_other_class'].append(max_other_conf)
                         if targeted and target_class is not None:
                             confidence_history['target_class'].append(probs[0][target_class].item())
+                        # Track top 10 classes for opportunistic mode (before locking)
+                        if opportunistic and not switched_to_targeted:
+                            top10_indices = torch.topk(probs_excluding_original, k=10).indices.tolist()
+                            top10_conf = {idx: probs[0][idx].item() for idx in top10_indices}
+                            confidence_history['top_classes'].append(top10_conf)
             
             # Get current confidence once (for efficiency)
             with torch.no_grad():
@@ -301,6 +313,7 @@ class SimBA(BaseAttack):
                             switched_to_targeted = True
                             switch_iteration = iteration + 1
                             confidence_history['switch_iteration'] = switch_iteration
+                            confidence_history['locked_class'] = current_max_class
                     else:
                         stability_counter = 0
                     prev_max_class = current_max_class
@@ -332,6 +345,7 @@ class SimBA(BaseAttack):
                             switched_to_targeted = True
                             switch_iteration = iteration + 1
                             confidence_history['switch_iteration'] = switch_iteration
+                            confidence_history['locked_class'] = current_max_class
                     else:
                         stability_counter = 0
                     prev_max_class = current_max_class
@@ -394,6 +408,7 @@ class SimBA(BaseAttack):
                             switched_to_targeted = True
                             switch_iteration = iteration + 1
                             confidence_history['switch_iteration'] = switch_iteration
+                            confidence_history['locked_class'] = current_max_class
                     else:
                         stability_counter = 0
                     prev_max_class = current_max_class
@@ -425,11 +440,12 @@ class SimBA(BaseAttack):
                             switched_to_targeted = True
                             switch_iteration = iteration + 1
                             confidence_history['switch_iteration'] = switch_iteration
+                            confidence_history['locked_class'] = current_max_class
                     else:
                         stability_counter = 0
                     prev_max_class = current_max_class
                 continue  # Accept this perturbation and move to next iteration
-        
+
         # Exhausted loop: record final iteration count for benchmarking
         num_done = min(self.max_iterations, num_candidates)
         if track_confidence and (not confidence_history['iterations'] or confidence_history['iterations'][-1] != num_done):

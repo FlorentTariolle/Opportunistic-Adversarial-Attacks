@@ -127,14 +127,17 @@ def compute_perturbation_visualization(
 
 def create_confidence_graph(
     confidence_history: Optional[Dict],
-    targeted: bool = False
+    targeted: bool = False,
+    opportunistic: bool = False
 ) -> Optional[Image.Image]:
     """Create a graph showing confidence evolution.
 
     Args:
         confidence_history: Dictionary with 'iterations', 'original_class', 'max_other_class',
                            and optionally 'target_class' keys.
-        targeted: If True, show target class confidence line.
+        targeted: If True, show target class confidence line with "Target Class" label.
+        opportunistic: If True, show locked class confidence line with "Locked Class" label.
+                      (The locked class is the one chosen by the stability criterion.)
 
     Returns:
         PIL Image of the graph, or None if no history available.
@@ -151,14 +154,50 @@ def create_confidence_graph(
     ax.plot(iterations, original_conf, 'b-', label='Original Class Confidence', linewidth=2)
     ax.plot(iterations, max_other_conf, 'r--', label='Max Other Class Confidence', linewidth=2)
 
-    # Add target class line for targeted attacks
-    if targeted and 'target_class' in confidence_history and len(confidence_history['target_class']) > 0:
+    # Add target/locked class line if available
+    if opportunistic:
+        # For opportunistic mode, reconstruct the locked class confidence from:
+        # - top_classes data (before switch): look up locked_class in each dict
+        # - target_class data (after switch): direct values
+        locked_class = confidence_history.get('locked_class')
+        top_classes = confidence_history.get('top_classes', [])
+        target_conf_after = confidence_history.get('target_class', [])
+
+        if locked_class is not None:
+            # Build the full locked class confidence history
+            locked_conf = []
+            # Before switch: extract from top_classes
+            for top_dict in top_classes:
+                if locked_class in top_dict:
+                    locked_conf.append(top_dict[locked_class])
+                else:
+                    # Class wasn't in top 10 at this point, use 0 or skip
+                    locked_conf.append(None)
+            # After switch: use target_class values
+            locked_conf.extend(target_conf_after)
+
+            # Filter out None values and align with iterations
+            valid_indices = [i for i, c in enumerate(locked_conf) if c is not None]
+            valid_conf = [locked_conf[i] for i in valid_indices]
+            valid_iters = [iterations[i] for i in valid_indices if i < len(iterations)]
+
+            if valid_conf and valid_iters:
+                ax.plot(valid_iters[:len(valid_conf)], valid_conf[:len(valid_iters)],
+                       'g-', label='Locked Class Confidence', linewidth=2)
+    elif targeted and 'target_class' in confidence_history and len(confidence_history['target_class']) > 0:
         target_conf = confidence_history['target_class']
-        ax.plot(iterations[:len(target_conf)], target_conf, 'g-', label='Target Class Confidence', linewidth=2)
+        # For targeted mode from the start, align with first N iterations
+        target_iterations = iterations[:len(target_conf)]
+        ax.plot(target_iterations, target_conf, 'g-', label='Target Class Confidence', linewidth=2)
 
     ax.set_xlabel('Iteration', fontsize=12)
     ax.set_ylabel('Confidence', fontsize=12)
-    title = 'Confidence Evolution During Targeted Attack' if targeted else 'Confidence Evolution During Untargeted Attack'
+    if opportunistic:
+        title = 'Confidence Evolution During Opportunistic Attack'
+    elif targeted:
+        title = 'Confidence Evolution During Targeted Attack'
+    else:
+        title = 'Confidence Evolution During Untargeted Attack'
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.legend(loc='best', fontsize=10)
     ax.grid(True, alpha=0.3)
@@ -212,7 +251,9 @@ def run_attack(
     max_iterations: int,
     model_name: str = 'resnet18',
     targeted: bool = False,
-    target_class: Optional[int] = None
+    target_class: Optional[int] = None,
+    opportunistic: bool = False,
+    stability_threshold: int = 30
 ) -> Tuple[Image.Image, Image.Image, Image.Image, str]:
     """Run adversarial attack on the image.
 
@@ -224,6 +265,8 @@ def run_attack(
         model_name: Name of the target model to attack.
         targeted: If True, perform targeted attack.
         target_class: Target class index for targeted attack.
+        opportunistic: If True, start untargeted and switch to targeted when max class stabilizes.
+        stability_threshold: Number of consecutive accepted perturbations before switching.
 
     Returns:
         Tuple of (adversarial_image, perturbation_image, confidence_graph, result_text):
@@ -274,7 +317,12 @@ def run_attack(
                 target_class=target_tensor
             )
         else:
-            x_adv = attack.generate(image_tensor, y_true, track_confidence=True)
+            x_adv = attack.generate(
+                image_tensor, y_true,
+                track_confidence=True,
+                opportunistic=opportunistic,
+                stability_threshold=stability_threshold
+            )
         
         # Get adversarial prediction
         with torch.no_grad():
@@ -298,14 +346,20 @@ def run_attack(
         # Compute perturbation visualization
         perturbation_image = compute_perturbation_visualization(image_tensor, x_adv)
 
+        # Get confidence history and check for opportunistic switch
+        ch = getattr(attack, 'confidence_history', None)
+        switch_iteration = ch.get('switch_iteration') if ch else None
+
         # Create confidence evolution graph
+        # For opportunistic mode, only show locked class line if a switch occurred
+        opportunistic_switched = opportunistic and switch_iteration is not None
         confidence_graph = create_confidence_graph(
-            getattr(attack, 'confidence_history', None),
-            targeted=targeted
+            ch,
+            targeted=targeted,
+            opportunistic=opportunistic_switched
         )
 
         # Iterations used (from confidence history if available)
-        ch = getattr(attack, 'confidence_history', None)
         iterations_used = ch['iterations'][-1] if ch and ch.get('iterations') else None
         budget_display = f"{iterations_used} iterations / {max_iterations}" if iterations_used is not None else f"? iterations / {max_iterations}"
 
@@ -319,6 +373,26 @@ def run_attack(
 
 **Target Class:**
 - Class: {target_class} ({target_label})
+
+**Adversarial Prediction:**
+- Class: {adv_class} ({adv_label})
+- Confidence: {adv_confidence:.2%}
+
+**Budget:** {budget_display}
+
+**Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
+"""
+        elif opportunistic:
+            mode_desc = "Opportunistic"
+            if switch_iteration is not None:
+                mode_desc += f" (switched to targeted at iteration {switch_iteration})"
+            else:
+                mode_desc += " (no switch occurred)"
+            result_text = f"""**Attack Mode:** {mode_desc}
+
+**Original Prediction:**
+- Class: {original_class} ({original_label})
+- Confidence: {original_confidence:.2%}
 
 **Adversarial Prediction:**
 - Class: {adv_class} ({adv_label})
@@ -430,14 +504,46 @@ def create_demo_interface():
                     filterable=True
                 )
 
-                # Show/hide target class dropdown based on attack mode
-                def update_target_visibility(mode):
-                    return gr.update(visible=(mode == "Targeted"))
+                opportunistic_checkbox = gr.Checkbox(
+                    value=False,
+                    label="Opportunistic Targeting",
+                    info="Start untargeted, then switch to targeted when a class stabilizes",
+                    visible=True
+                )
+
+                stability_threshold_slider = gr.Slider(
+                    minimum=5,
+                    maximum=100,
+                    value=30,
+                    step=5,
+                    label="Stability Threshold",
+                    info="Consecutive accepted perturbations before switching to targeted",
+                    visible=False
+                )
+
+                # Show/hide controls based on attack mode
+                def update_mode_visibility(mode):
+                    is_targeted = (mode == "Targeted")
+                    return (
+                        gr.update(visible=is_targeted),  # target_class_dropdown
+                        gr.update(visible=not is_targeted),  # opportunistic_checkbox
+                        gr.update(visible=False)  # stability_threshold_slider (controlled by checkbox)
+                    )
 
                 attack_mode.change(
-                    fn=update_target_visibility,
+                    fn=update_mode_visibility,
                     inputs=[attack_mode],
-                    outputs=[target_class_dropdown]
+                    outputs=[target_class_dropdown, opportunistic_checkbox, stability_threshold_slider]
+                )
+
+                # Show/hide stability threshold based on opportunistic checkbox
+                def update_stability_visibility(opportunistic):
+                    return gr.update(visible=opportunistic)
+
+                opportunistic_checkbox.change(
+                    fn=update_stability_visibility,
+                    inputs=[opportunistic_checkbox],
+                    outputs=[stability_threshold_slider]
                 )
 
                 attack_button = gr.Button("Run Attack", variant="primary", size="lg")
@@ -507,7 +613,8 @@ def create_demo_interface():
         
         # Run attack when button is clicked
         # Note: original_output is NOT in outputs - it stays static during attack
-        def execute_attack(image, method, epsilon, max_iter, model, mode, target_cls_str):
+        def execute_attack(image, method, epsilon, max_iter, model, mode, target_cls_str,
+                          opportunistic, stability_threshold):
             if image is None:
                 return None, None, None, "Please upload an image first."
 
@@ -515,16 +622,21 @@ def create_demo_interface():
             # Parse target class from dropdown string (format: "0: tench")
             target_class = int(target_cls_str.split(":")[0]) if targeted else None
 
+            # Opportunistic only applies to untargeted mode
+            use_opportunistic = opportunistic and not targeted
+
             adv_image, pert_image, conf_graph, result = run_attack(
                 image, method, epsilon, max_iter, model,
-                targeted=targeted, target_class=target_class
+                targeted=targeted, target_class=target_class,
+                opportunistic=use_opportunistic, stability_threshold=int(stability_threshold)
             )
             return adv_image, pert_image, conf_graph, result
 
         attack_button.click(
             fn=execute_attack,
             inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider,
-                    model_dropdown, attack_mode, target_class_dropdown],
+                    model_dropdown, attack_mode, target_class_dropdown,
+                    opportunistic_checkbox, stability_threshold_slider],
             outputs=[adversarial_output, perturbation_output, confidence_graph_output, result_text]
         )
         
