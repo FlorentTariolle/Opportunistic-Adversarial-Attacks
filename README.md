@@ -4,7 +4,7 @@
 
 ## Research Abstract
 
-Standard black-box attacks (like SimBA and Square Attack) often suffer from inefficient "random walks" in the latent space during untargeted attacks, or require difficult a priori knowledge for targeted attacks.
+Standard black-box attacks (like SimBA) often suffer from inefficient "random walks" in the latent space during untargeted attacks. While state-of-the-art methods like Square Attack mitigate this via margin loss, this inefficiency re-emerges when attacks are constrained to Cross-Entropy loss or lack intrinsic directional optimization.
 
 **Opportunistic Targeting** is a novel strategy designed to bridge this gap. It operates on a **Rank-Stability Heuristic**:
 1.  **Exploration:** The attack initiates in untargeted mode, allowing the adversarial example to naturally drift along the path of least resistance.
@@ -43,7 +43,7 @@ graph TD
     H -- Yes --> I[Success]
 ```
 
-*S = `stability_threshold` (default 30). An "accepted perturbation" is a step that improved the adversarial loss — not every query counts toward S.*
+*S = `stability_threshold` (default 5). An "accepted perturbation" is a step that improved the adversarial loss — not every query counts toward S.*
 
 ---
 
