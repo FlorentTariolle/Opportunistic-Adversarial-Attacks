@@ -1,26 +1,42 @@
-# ImageNet-Adversarial-Demonstrator
+# Opportunistic-Adversarial-Attacks
 
-Interactive web demo for generating adversarial examples that fool image classification models using black-box attacks (SimBA).
+**A Hybrid Query-Optimization Framework for Black-Box Adversarial Attacks**
 
-## What is this?
+## Research Abstract
 
-Upload an image and generate imperceptible perturbations that cause neural networks to misclassify it, demonstrating the vulnerability of deep learning models to adversarial attacks.
+Standard black-box attacks (like SimBA and Square Attack) often suffer from inefficient "random walks" in the latent space during untargeted attacks, or require difficult a priori knowledge for targeted attacks.
 
-## How to Run
+**Opportunistic Targeting** is a novel strategy designed to bridge this gap. It operates on a **Rank-Stability Heuristic**:
+1.  **Exploration:** The attack initiates in untargeted mode, allowing the adversarial example to naturally drift along the path of least resistance.
+2.  **Identification:** A stability buffer monitors the top non-ground-truth logits. If a specific class maintains the highest rank for $X$ consecutive iterations (the "Stability Threshold"), it is flagged as the optimal exit point.
+3.  **Exploitation:** The algorithm dynamically locks onto this class and switches to a pure Targeted Attack mode to aggressively breach the decision boundary.
 
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+This repository currently validates this logic using **SimBA** (Simple Black-box Adversarial Attacks) as the base attack vector.
 
-2. Launch the demo:
-```bash
-python launch_demo.py
-```
+---
 
-3. Open your browser to `http://127.0.0.1:7860`
+## Key Features
 
-**Optional flags:**
-- `--share` - Create a public sharing link
-- `--host HOST` - Set server host (default: 127.0.0.1)
-- `--port PORT` - Set server port (default: 7860)
+* **Dynamic Mode Switching:** Automated transition from Untargeted Exploration to Targeted Exploitation.
+* **Rank-Stability "Debouncing":** Prevents locking onto volatile classes that spike due to random noise, ensuring resources are only committed to the most viable target.
+* **Query Efficiency:** Designed to minimize the query count ($Q$) required to fool the network compared to standard untargeted baselines.
+* **SimBA Integration:** Fully functional implementation of Opportunistic Targeting applied to the SimBA algorithm.
+
+---
+
+## Logic Visualization
+
+The core innovation is the **Stability Check** loop.
+
+```mermaid
+graph TD
+    A[Start: Input Image x] --> B{Phase 1: Untargeted Drift}
+    B --> C[Query Model]
+    C --> D{Is Top Adversarial Class <br>Stable for X Steps?}
+    D -- No --> B
+    D -- Yes --> E[LOCK TARGET: y_target]
+    E --> F{Phase 2: Targeted Attack}
+    F --> G[Optimize for y_target]
+    G --> H{Misclassified?}
+    H -- No --> F
+    H -- Yes --> I[Success]
