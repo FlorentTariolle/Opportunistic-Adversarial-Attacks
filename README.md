@@ -11,7 +11,7 @@ Standard black-box attacks (like SimBA and Square Attack) often suffer from inef
 2.  **Identification:** A stability buffer monitors the top non-ground-truth logits. If a specific class maintains the highest rank for $X$ consecutive iterations (the "Stability Threshold"), it is flagged as the optimal exit point.
 3.  **Exploitation:** The algorithm dynamically locks onto this class and switches to a pure Targeted Attack mode to aggressively breach the decision boundary.
 
-This repository currently validates this logic using **SimBA** (Simple Black-box Adversarial Attacks) as the base attack vector.
+This repository validates this logic on two attack vectors: **SimBA** (Simple Black-box Adversarial Attacks) and **Square Attack** (with cross-entropy loss). The CE-loss ablation on Square Attack isolates the framework's contribution — opportunistic targeting compensates for the latent-space drift inherent in losses that lack intrinsic directionality (see `SQUARE_ATTACK.md`).
 
 ---
 
@@ -21,6 +21,7 @@ This repository currently validates this logic using **SimBA** (Simple Black-box
 * **Rank-Stability "Debouncing":** Prevents locking onto volatile classes that spike due to random noise, ensuring resources are only committed to the most viable target.
 * **Query Efficiency:** Designed to minimize the query count ($Q$) required to fool the network compared to standard untargeted baselines.
 * **SimBA Integration:** Fully functional implementation of Opportunistic Targeting applied to the SimBA algorithm.
+* **Square Attack Validation:** CE-loss ablation on Square Attack confirms the framework restores ~97% of oracle-targeted efficiency for drift-prone losses (see `SQUARE_ATTACK.md`).
 
 ---
 
