@@ -229,8 +229,10 @@ class _OpportunisticSquare(torchattacks.Square):
                     should_track = (i_iter < 50) or (i_iter % 10 == 0)
                     if should_track or accepted:
                         _record_confidence(x_best, i_iter + 1)
-                    if accepted:
-                        _check_stability(x_best, i_iter + 1)
+
+                # Opportunistic stability check (independent of confidence tracking)
+                if n_ex_total == 1 and accepted:
+                    _check_stability(x_best, i_iter + 1)
 
                 # After opportunistic switch, recompute margins with
                 # targeted semantics so the loop keeps optimising.
@@ -265,7 +267,7 @@ class SquareAttack(BaseAttack):
     def __init__(
         self,
         model: nn.Module,
-        epsilon: float = 0.05,
+        epsilon: float = 8 / 255,
         max_iterations: int = 1000,
         device: Optional[torch.device] = None,
         loss: str = 'margin',
