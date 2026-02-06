@@ -27,7 +27,7 @@ from src.utils.imaging import (
     IMAGENET_MEAN,
     IMAGENET_STD
 )
-from src.attacks import SimBA
+from src.attacks import SimBA, SquareAttack
 
 
 # Global model cache
@@ -253,7 +253,8 @@ def run_attack(
     targeted: bool = False,
     target_class: Optional[int] = None,
     opportunistic: bool = False,
-    stability_threshold: int = 30
+    stability_threshold: int = 30,
+    loss: str = 'margin'
 ) -> Tuple[Image.Image, Image.Image, Image.Image, str]:
     """Run adversarial attack on the image.
 
@@ -302,6 +303,14 @@ def run_attack(
                 max_iterations=max_iterations,
                 device=_device,
                 use_dct=True
+            )
+        elif method == "Square Attack":
+            attack = SquareAttack(
+                model=model,
+                epsilon=epsilon,
+                max_iterations=max_iterations,
+                device=_device,
+                loss=loss
             )
         else:
             return None, None, None, f"Unknown attack method: {method}"
@@ -448,7 +457,7 @@ def create_demo_interface():
                 gr.Markdown("### Attack Configuration")
                 
                 method_dropdown = gr.Dropdown(
-                    choices=["SimBA"],
+                    choices=["SimBA", "Square Attack"],
                     value="SimBA",
                     label="Attack Method",
                     info="Select the adversarial attack method"
@@ -479,6 +488,24 @@ def create_demo_interface():
                     info="Target model to attack"
                 )
 
+                loss_radio = gr.Radio(
+                    choices=["Margin", "Cross-Entropy"],
+                    value="Margin",
+                    label="Loss Function",
+                    info="Loss optimized by Square Attack",
+                    visible=False
+                )
+
+                # Show/hide loss selector based on attack method
+                def update_loss_visibility(method):
+                    return gr.update(visible=(method == "Square Attack"))
+
+                method_dropdown.change(
+                    fn=update_loss_visibility,
+                    inputs=[method_dropdown],
+                    outputs=[loss_radio]
+                )
+
                 gr.Markdown("### Attack Mode")
 
                 attack_mode = gr.Radio(
@@ -488,20 +515,19 @@ def create_demo_interface():
                     info="Untargeted: cause any misclassification. Targeted: force specific class."
                 )
 
-                # Build target class choices from ImageNet labels
                 imagenet_labels = get_imagenet_labels()
-                target_class_choices = [
-                    f"{idx}: {imagenet_labels.get(idx, f'class_{idx}')}"
-                    for idx in range(1000)
-                ]
 
-                target_class_dropdown = gr.Dropdown(
-                    choices=target_class_choices,
-                    value=target_class_choices[0],
-                    label="Target Class",
-                    info="Select the target class for targeted attack",
-                    visible=False,
-                    filterable=True
+                target_class_number = gr.Number(
+                    value=0,
+                    label="Target Class Index (0-999)",
+                    info="Enter an ImageNet class index",
+                    precision=0,
+                    visible=False
+                )
+
+                target_class_label = gr.Markdown(
+                    value=f"**Target:** 0 — {imagenet_labels.get(0, 'unknown')}",
+                    visible=False
                 )
 
                 opportunistic_checkbox = gr.Checkbox(
@@ -525,7 +551,8 @@ def create_demo_interface():
                 def update_mode_visibility(mode):
                     is_targeted = (mode == "Targeted")
                     return (
-                        gr.update(visible=is_targeted),  # target_class_dropdown
+                        gr.update(visible=is_targeted),  # target_class_number
+                        gr.update(visible=is_targeted),  # target_class_label
                         gr.update(visible=not is_targeted),  # opportunistic_checkbox
                         gr.update(visible=False)  # stability_threshold_slider (controlled by checkbox)
                     )
@@ -533,7 +560,21 @@ def create_demo_interface():
                 attack_mode.change(
                     fn=update_mode_visibility,
                     inputs=[attack_mode],
-                    outputs=[target_class_dropdown, opportunistic_checkbox, stability_threshold_slider]
+                    outputs=[target_class_number, target_class_label,
+                             opportunistic_checkbox, stability_threshold_slider]
+                )
+
+                # Update label preview when class index changes
+                def update_target_label(idx):
+                    idx = int(idx) if idx is not None else 0
+                    idx = max(0, min(999, idx))
+                    name = imagenet_labels.get(idx, 'unknown')
+                    return f"**Target:** {idx} — {name}"
+
+                target_class_number.change(
+                    fn=update_target_label,
+                    inputs=[target_class_number],
+                    outputs=[target_class_label]
                 )
 
                 # Show/hide stability threshold based on opportunistic checkbox
@@ -613,29 +654,32 @@ def create_demo_interface():
         
         # Run attack when button is clicked
         # Note: original_output is NOT in outputs - it stays static during attack
-        def execute_attack(image, method, epsilon, max_iter, model, mode, target_cls_str,
-                          opportunistic, stability_threshold):
+        def execute_attack(image, method, epsilon, max_iter, model, loss_choice,
+                          mode, target_cls_idx, opportunistic, stability_threshold):
             if image is None:
                 return None, None, None, "Please upload an image first."
 
             targeted = (mode == "Targeted")
-            # Parse target class from dropdown string (format: "0: tench")
-            target_class = int(target_cls_str.split(":")[0]) if targeted else None
+            target_class = max(0, min(999, int(target_cls_idx))) if targeted and target_cls_idx is not None else None
 
             # Opportunistic only applies to untargeted mode
             use_opportunistic = opportunistic and not targeted
 
+            # Map UI label to torchattacks loss name
+            loss = 'ce' if loss_choice == "Cross-Entropy" else 'margin'
+
             adv_image, pert_image, conf_graph, result = run_attack(
                 image, method, epsilon, max_iter, model,
                 targeted=targeted, target_class=target_class,
-                opportunistic=use_opportunistic, stability_threshold=int(stability_threshold)
+                opportunistic=use_opportunistic, stability_threshold=int(stability_threshold),
+                loss=loss
             )
             return adv_image, pert_image, conf_graph, result
 
         attack_button.click(
             fn=execute_attack,
             inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider,
-                    model_dropdown, attack_mode, target_class_dropdown,
+                    model_dropdown, loss_radio, attack_mode, target_class_number,
                     opportunistic_checkbox, stability_threshold_slider],
             outputs=[adversarial_output, perturbation_output, confidence_graph_output, result_text]
         )
