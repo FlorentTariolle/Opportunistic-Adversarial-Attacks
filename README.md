@@ -33,7 +33,7 @@ The core innovation is the **Stability Check** loop.
 graph TD
     A[Start: Input Image x] --> B{Phase 1: Untargeted Drift}
     B --> C[Query Model]
-    C --> D{Is Top Adversarial Class <br>Stable for X Steps?}
+    C --> D{Same Top Class for<br>S Accepted Perturbations?}
     D -- No --> B
     D -- Yes --> E[LOCK TARGET: y_target]
     E --> F{Phase 2: Targeted Attack}
@@ -42,6 +42,9 @@ graph TD
     H -- No --> F
     H -- Yes --> I[Success]
 ```
+
+*S = `stability_threshold` (default 30). An "accepted perturbation" is a step that improved the adversarial loss — not every query counts toward S.*
+
 ---
 
 ## Quick Start

@@ -91,6 +91,8 @@ $$\|\delta_T\|_2 = \sqrt{T} \cdot \epsilon$$
 
 **Trade-off:** Larger ε means faster convergence but higher perturbation norm.
 
+> **Note:** This bound applies to the paper's L₂ formulation. Our implementation uses an **L∞ constraint** (see [Implementation Details](#implementation-details)), so this formula does not govern the perturbation budget in our demo.
+
 ---
 
 ## Implementation Details
@@ -124,7 +126,8 @@ $$\|\delta_T\|_2 = \sqrt{T} \cdot \epsilon$$
 ### Code Structure
 
 ```
-SimBA.generate(x, y)
+SimBA.generate(x, y, track_confidence, targeted, target_class,
+               early_stop, opportunistic, stability_threshold)
     └── _attack_single_image(x, y)
             ├── _generate_dct_candidate_indices(x)  # or pixel indices
             ├── For each iteration:
@@ -132,7 +135,8 @@ SimBA.generate(x, y)
             │   │       └── _create_single_dct_basis_vector()
             │   │               └── _idct_2d()  # Inverse DCT
             │   ├── Try +perturbation → check confidence
-            │   └── Try -perturbation → check confidence
+            │   ├── Try -perturbation → check confidence
+            │   └── Stability check (if opportunistic)
             └── Return adversarial image
 ```
 
@@ -150,6 +154,18 @@ SimBA.generate(x, y)
    - Norm grows predictably
 
 4. **Low-frequency bias:** DCT space exploits the observation that adversarial perturbations are often more effective in low-frequency components.
+
+---
+
+## Opportunistic Targeting Extension
+
+SimBA's untargeted loss $P(y|x)$ minimizes ground-truth confidence without directing the perturbation toward any specific class. This causes the adversarial example to drift through the latent space without a fixed destination — effective for crossing *some* decision boundary, but inefficient when a clear exit point emerges early.
+
+The **opportunistic wrapper** monitors accepted perturbations (steps that reduced the true-class confidence). If the same non-ground-truth class holds the top rank for `stability_threshold` consecutive acceptances, the attack locks onto that class and switches to a pure targeted objective $-P(t|x)$.
+
+This two-phase approach combines the exploration efficiency of untargeted mode with the convergence speed of targeted mode, without requiring a priori knowledge of the target class.
+
+**See also:** [README.md](README.md) for the framework overview and [SQUARE_ATTACK.md](SQUARE_ATTACK.md) for the CE-loss ablation that demonstrates how the framework compensates for latent-space drift in losses that lack intrinsic directionality.
 
 ---
 

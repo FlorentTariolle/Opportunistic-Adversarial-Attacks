@@ -54,7 +54,7 @@ To ensure a fair and consistent comparison across all algorithms in this interac
     While some algorithms (like SimBA) are originally formulated or often evaluated using the $L_2$ norm, the $L_\infty$ norm provides a stricter guarantee on **individual pixel changes**. This ensures that no single pixel is perturbed beyond a fixed limit $\epsilon$, making the noise more uniformly imperceptible to the human eye compared to $L_2$, which allows for large spikes in specific pixels.
 
 * **Implementation in Demo:**
-    * **Square Attack:** Naturally support and operate within $L_\infty$ bounds.
+    * **Square Attack:** Naturally supports and operates within $L_\infty$ bounds.
     * **SimBA:** The paper proposes two variants—Pixel Space (Cartesian basis) and DCT Space (low-frequency Discrete Cosine Transform basis). The demo uses **SimBA-DCT** by default, which restricts perturbations to low-frequency directions and is more query-efficient. Both variants operate under the same $\epsilon$ budget as other attacks.
 
 * **Global Parameters:**
