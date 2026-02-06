@@ -31,7 +31,7 @@ We evaluated the framework on Square Attack ($L_\infty$) under two distinct loss
 | **Oracle (Targeted)** | **~300** | 100% | Targeted attack on the optimal class (known a priori). |
 | **Opportunistic (Ours)** | **~310** | **97%** | **Near-optimal convergence.** |
 
-*Note: The "Opportunistic" cost includes the ~10 iterations required for the Rank-Stability Heuristic to identify the target before locking on.*
+*Note: The Opportunistic overhead is minimal (~10 extra queries) because the untargeted exploration phase already drives confidence toward the eventually-locked class — those iterations are not wasted.*
 
 ## 4. Conclusion & Impact
 

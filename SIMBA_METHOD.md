@@ -2,7 +2,7 @@
 
 ## Overview
 
-SimBA (Simple Black-box Adversarial Attack) is a query-efficient black-box attack algorithm proposed by Guo et al. (ICML 2019). It constructs adversarial images using only the model's confidence scores, without requiring gradient access.
+SimBA (Simple Black-box Adversarial Attacks) is a query-efficient black-box attack algorithm proposed by Guo et al. (ICML 2019). It constructs adversarial images using only the model's confidence scores, without requiring gradient access.
 
 **Key insight:** If the distance to a decision boundary is small, we don't need to be precise about the direction—randomly sampling from an orthonormal basis and taking steps that reduce the target class confidence is sufficient.
 
@@ -118,8 +118,8 @@ $$\|\delta_T\|_2 = \sqrt{T} \cdot \epsilon$$
    - Basis vectors computed on-the-fly for memory efficiency
 
 3. **Acceptance criterion:** A perturbation is accepted if:
-   - It causes misclassification (success), OR
-   - It reduces the true class confidence
+   - It causes misclassification (untargeted) or reaches the target class (targeted), OR
+   - It reduces the true class confidence (untargeted) or increases the target class confidence (targeted)
 
 4. **Image normalization:** Uses standard ImageNet normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]).
 

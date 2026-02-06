@@ -18,8 +18,7 @@ SimBA operates by iteratively adding or subtracting a vector from a predefined o
     * Untargeted: **10,000 queries** (standard for ImageNet/CIFAR).
     * Targeted: **30,000 queries**.
 * **Perturbation Budget:**
-    * Controlled by the step size $\epsilon$ (default **0.03** in our $L_\infty$ implementation) and the number of iterations. Note: the original paper uses $\epsilon = 0.2$ for its $L_2$ setting, which does not apply here.
-    * The $L_2$ norm is bounded by $\sqrt{T} \cdot \epsilon$ (where $T$ is the number of successful steps).
+    * Controlled by the step size $\epsilon$ (default **0.03** in our $L_\infty$ implementation) and the number of iterations. Note: the original paper uses an $L_2$ setting ($\epsilon = 0.2$, norm bounded by $\sqrt{T} \cdot \epsilon$ where $T$ is the number of successful steps), which does not apply to our $L_\infty$ demo.
 
 ---
 
@@ -58,7 +57,8 @@ To ensure a fair and consistent comparison across all algorithms in this interac
     * **SimBA:** The paper proposes two variants—Pixel Space (Cartesian basis) and DCT Space (low-frequency Discrete Cosine Transform basis). The demo uses **SimBA-DCT** by default, which restricts perturbations to low-frequency directions and is more query-efficient. Both variants operate under the same $\epsilon$ budget as other attacks.
 
 * **Global Parameters:**
-    * **Square Attack $\epsilon$:** Operates in **[0, 1] pixel space**. Default $\epsilon = 8/255 \approx 0.031$ (standard ImageNet setting). The demo slider directly controls this pixel-space bound.
+    * **Square Attack $\epsilon$:** Operates in **[0, 1] pixel space**. The standard ImageNet setting is $\epsilon = 8/255 \approx 0.031$; the demo slider defaults to $0.03$.
     * **SimBA $\epsilon$:** Operates in **ImageNet-normalized space**. Default $\epsilon = 0.03$ (in normalized units). Because each channel is divided by its standard deviation ($\sigma \approx 0.22\text{--}0.27$), the effective pixel-space perturbation per channel is $\epsilon \times \sigma$, which is smaller than the raw number suggests.
     * **Important:** These epsilon values are **not directly comparable** across attacks — they live in different coordinate spaces. The demo slider controls each attack in its native space; a slider value of 0.03 means 0.03 in pixel space for Square Attack but 0.03 in normalized space for SimBA.
+    * **Iteration Budget:** The demo defaults to **1,000 iterations** (slider range: 100–5,000). This is independent of the paper-standard query budgets listed in Sections 1–2.
     * **Pixel Range:** Images use standard ImageNet normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]).
