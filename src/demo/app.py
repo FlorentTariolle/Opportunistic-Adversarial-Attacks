@@ -444,12 +444,31 @@ def create_demo_interface():
         and visualization components.
     """
     
+    # Build GPU status message
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_status_md = (
+            f"<div style='display:inline-block; padding:4px 12px; "
+            f"border-radius:6px; background:#d4edda; color:#155724; "
+            f"font-size:0.9em'>"
+            f"&#9679; GPU Active &mdash; <strong>{gpu_name}</strong></div>"
+        )
+    else:
+        gpu_status_md = (
+            "<div style='display:inline-block; padding:4px 12px; "
+            "border-radius:6px; background:#e2e3e5; color:#6c757d; "
+            "font-size:0.9em'>"
+            "&#9675; GPU Unavailable &mdash; running on CPU</div>"
+        )
+
     with gr.Blocks(title="Adversarial Attack Demonstrator", theme=gr.themes.Soft()) as demo:
         gr.Markdown(
-            """
+            f"""
             # Adversarial Black-Box Attack Demonstrator
-            
+
             Upload an image and configure the attack parameters to generate adversarial examples.
+
+            {gpu_status_md}
             """
         )
         
