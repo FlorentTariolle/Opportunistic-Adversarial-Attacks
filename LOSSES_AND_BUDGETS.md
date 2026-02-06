@@ -18,13 +18,13 @@ SimBA operates by iteratively adding or subtracting a vector from a predefined o
     * Untargeted: **10,000 queries** (standard for ImageNet/CIFAR).
     * Targeted: **30,000 queries**.
 * **Perturbation Budget:**
-    * Controlled by the step size $\epsilon$ (typically **0.2**) and the number of iterations.
+    * Controlled by the step size $\epsilon$ (default **0.03** in our $L_\infty$ implementation) and the number of iterations. Note: the original paper uses $\epsilon = 0.2$ for its $L_2$ setting, which does not apply here.
     * The $L_2$ norm is bounded by $\sqrt{T} \cdot \epsilon$ (where $T$ is the number of successful steps).
 
 ---
 
 ## 2. Square Attack
-**Paper:** [*BlackboxBench: A Comprehensive Benchmark of Black-box Adversarial Attacks*](https://arxiv.org/pdf/2312.16979)
+**Paper:** [*Square Attack: a query-efficient black-box adversarial attack via random search*](https://arxiv.org/abs/1912.00049) (Andriushchenko et al., ECCV 2020)
 
 Square Attack is a score-based method based on random search that samples updates at the vertices of the $L_\infty$ neighborhood.
 
@@ -58,5 +58,7 @@ To ensure a fair and consistent comparison across all algorithms in this interac
     * **SimBA:** The paper proposes two variants—Pixel Space (Cartesian basis) and DCT Space (low-frequency Discrete Cosine Transform basis). The demo uses **SimBA-DCT** by default, which restricts perturbations to low-frequency directions and is more query-efficient. Both variants operate under the same $\epsilon$ budget as other attacks.
 
 * **Global Parameters:**
-    * **Max Perturbation ($\epsilon$):** Set to **$8/255$** (approx 0.03) for all methods (standard setting for ImageNet-scale images).
+    * **Square Attack $\epsilon$:** Operates in **[0, 1] pixel space**. Default $\epsilon = 8/255 \approx 0.031$ (standard ImageNet setting). The demo slider directly controls this pixel-space bound.
+    * **SimBA $\epsilon$:** Operates in **ImageNet-normalized space**. Default $\epsilon = 0.03$ (in normalized units). Because each channel is divided by its standard deviation ($\sigma \approx 0.22\text{--}0.27$), the effective pixel-space perturbation per channel is $\epsilon \times \sigma$, which is smaller than the raw number suggests.
+    * **Important:** These epsilon values are **not directly comparable** across attacks — they live in different coordinate spaces. The demo slider controls each attack in its native space; a slider value of 0.03 means 0.03 in pixel space for Square Attack but 0.03 in normalized space for SimBA.
     * **Pixel Range:** Images use standard ImageNet normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]).

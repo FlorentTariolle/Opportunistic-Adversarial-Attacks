@@ -20,7 +20,7 @@ We evaluated the framework on Square Attack ($L_\infty$) under two distinct loss
 * **Analysis:** The `max` term in the Margin Loss dynamically identifies the nearest decision boundary at *every iteration*. Consequently, the standard algorithm naturally performs a "dynamic targeted attack." The Opportunistic framework is redundant in this scenario as the loss function already mathematically encodes the optimal path.
 
 ### B. Square Attack + Cross-Entropy Loss (Ablation Study)
-* **Loss Function:** $L = - \log(1 - P(y_{true}))$ (Solely minimizing ground truth probability).
+* **Loss Function:** $L = -\log P(y_{true} | x)$ (Standard cross-entropy — solely targets the ground truth probability, with no margin or competitor term).
 * **Observation:** Without the guidance of the Margin term, the standard attack efficiency degrades significantly due to drift. The Opportunistic framework successfully corrected this behavior.
 
 **Query Budget Comparison:**
