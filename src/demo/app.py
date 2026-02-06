@@ -461,7 +461,7 @@ def create_demo_interface():
             "&#9675; GPU Unavailable &mdash; running on CPU</div>"
         )
 
-    with gr.Blocks(title="Adversarial Attack Demonstrator", theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(title="Adversarial Attack Demonstrator") as demo:
         gr.Markdown(
             f"""
             # Adversarial Black-Box Attack Demonstrator
@@ -478,14 +478,14 @@ def create_demo_interface():
                 
                 method_dropdown = gr.Dropdown(
                     choices=["SimBA", "Square Attack"],
-                    value="SimBA",
+                    value="Square Attack",
                     label="Attack Method",
                     info="Select the adversarial attack method"
                 )
                 
                 epsilon_slider = gr.Slider(
                     minimum=0.01,
-                    maximum=1.0,
+                    maximum=2.0,
                     value=0.03,
                     step=0.01,
                     label="Epsilon (ε)",
@@ -493,8 +493,8 @@ def create_demo_interface():
                 )
                 
                 max_iter_slider = gr.Slider(
-                    minimum=100,
-                    maximum=5000,
+                    minimum=500,
+                    maximum=10000,
                     value=1000,
                     step=100,
                     label="Max Iterations",
@@ -509,11 +509,11 @@ def create_demo_interface():
                 )
 
                 loss_radio = gr.Radio(
-                    choices=["Margin", "Cross-Entropy"],
-                    value="Margin",
+                    choices=["Cross-Entropy", "Margin"],
+                    value="Cross-Entropy",
                     label="Loss Function",
                     info="Loss optimized by Square Attack",
-                    visible=False
+                    visible=True
                 )
 
                 # Show/hide loss selector based on attack method
@@ -559,8 +559,8 @@ def create_demo_interface():
 
                 stability_threshold_slider = gr.Slider(
                     minimum=5,
-                    maximum=100,
-                    value=30,
+                    maximum=50,
+                    value=5,
                     step=5,
                     label="Stability Threshold",
                     info="Consecutive accepted perturbations before switching to targeted",
@@ -611,65 +611,88 @@ def create_demo_interface():
             
             with gr.Column(scale=2):
                 gr.Markdown("### Image")
-                
+
+                # Hidden component to store the raw uploaded image
                 image_input = gr.Image(
                     type="pil",
-                    label="Upload Image",
-                    height=400
+                    visible=False
                 )
-                
-                # Store preprocessed original image tensor (for immediate display)
+
+                # Preprocessed image shown directly to the user
                 original_output = gr.Image(
-                    label="Original Image",
+                    label="Preprocessed Image",
                     type="pil",
-                    height=300
+                    height=400,
+                    sources=["upload", "clipboard"],
+                    interactive=True
                 )
-                
+
                 with gr.Row():
                     adversarial_output = gr.Image(
                         label="Adversarial Image",
                         type="pil",
                         height=300
                     )
-                    
+
                     perturbation_output = gr.Image(
                         label="Perturbation (scaled for visibility)",
                         type="pil",
                         height=300
                     )
-                
+
+            with gr.Column(scale=1):
+                gr.Markdown("### Results")
+
                 confidence_graph_output = gr.Image(
                     label="Confidence Evolution",
                     type="pil",
                     height=300
                 )
-                
+
                 result_text = gr.Markdown(label="Attack Results")
         
-        # Update original image immediately when input changes (preprocess and show)
+        # When user uploads directly to the visible component, store raw in hidden input
+        def store_raw_image(image):
+            return image
+
+        original_output.upload(
+            fn=store_raw_image,
+            inputs=[original_output],
+            outputs=[image_input]
+        )
+
+        # When hidden image_input changes (from upload or example), preprocess and show
         def update_original(image, model):
             if image is None:
                 return None, ""
             try:
-                # Preprocess and show immediately
                 preprocessed = preprocess_image(image, device=_device)
                 original_pil = tensor_to_pil(preprocessed)
                 label, confidence, _ = predict_image(image, model)
                 return original_pil, f"**Original Prediction:** {label} ({confidence:.2%})"
             except Exception as e:
                 return image, f"Error: {str(e)}"
-        
+
         image_input.change(
             fn=update_original,
             inputs=[image_input, model_dropdown],
             outputs=[original_output, result_text]
         )
-        
-        # Also update when model changes
+
+        # Only update prediction text when model changes (preprocessing is model-independent)
+        def update_prediction(image, model):
+            if image is None:
+                return ""
+            try:
+                label, confidence, _ = predict_image(image, model)
+                return f"**Original Prediction:** {label} ({confidence:.2%})"
+            except Exception as e:
+                return f"Error: {str(e)}"
+
         model_dropdown.change(
-            fn=update_original,
+            fn=update_prediction,
             inputs=[image_input, model_dropdown],
-            outputs=[original_output, result_text]
+            outputs=[result_text]
         )
         
         # Run attack when button is clicked
@@ -732,7 +755,7 @@ def launch_demo(share: bool = False, server_name: str = "127.0.0.1", server_port
         server_port: Port to run the server on.
     """
     demo = create_demo_interface()
-    demo.launch(share=share, server_name=server_name, server_port=server_port)
+    demo.launch(share=share, server_name=server_name, server_port=server_port, theme=gr.themes.Soft())
 
 
 if __name__ == "__main__":
