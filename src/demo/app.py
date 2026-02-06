@@ -268,6 +268,7 @@ def run_attack(
         target_class: Target class index for targeted attack.
         opportunistic: If True, start untargeted and switch to targeted when max class stabilizes.
         stability_threshold: Number of consecutive accepted perturbations before switching.
+        loss: Loss function for Square Attack ('margin' or 'ce').
 
     Returns:
         Tuple of (adversarial_image, perturbation_image, confidence_graph, result_text):
@@ -690,7 +691,7 @@ def create_demo_interface():
         example_dir = os.path.join(project_root, "data")
         if os.path.exists(example_dir):
             for filename in os.listdir(example_dir):
-                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     example_images.append(os.path.join(example_dir, filename))
         
         if example_images:
