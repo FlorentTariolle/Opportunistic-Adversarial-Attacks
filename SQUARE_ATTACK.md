@@ -15,7 +15,7 @@ We posit that standard Untargeted attacks utilizing simple probability minimizat
 We evaluated the framework on Square Attack ($L_\infty$) under two distinct loss configurations.
 
 ### A. Square Attack + Margin Loss (Standard)
-* **Loss Function:** $L = P(y_{true}) - \max_{y \neq true} P(y)$
+* **Loss Function:** $L = f_{y_{true}}(x) - \max_{k \neq y_{true}} f_k(x)$ where $f$ denotes raw logits (matching the torchattacks implementation and `LOSSES_AND_BUDGETS.md` Section 2 notation).
 * **Observation:** The Opportunistic Strategy yielded **no significant reduction** in queries compared to the standard Untargeted mode.
 * **Analysis:** The `max` term in the Margin Loss dynamically identifies the nearest decision boundary at *every iteration*. Consequently, the standard algorithm naturally performs a "dynamic targeted attack." The Opportunistic framework is redundant in this scenario as the loss function already mathematically encodes the optimal path.
 
