@@ -50,8 +50,15 @@ graph TD
 ## Quick Start
 
 1.  **Install dependencies**
+
+    **With GPU (NVIDIA CUDA 12.1):**
     ```bash
-    pip install -r requirements.txt
+    pip install -r requirements-gpu.txt
+    ```
+
+    **CPU only:**
+    ```bash
+    pip install -r requirements-cpu.txt
     ```
 
 2.  **Launch the demonstrator**
