@@ -445,7 +445,7 @@ def create_demo_interface():
         
         with gr.Row():
             with gr.Column(scale=1):
-                gr.Markdown("### ⚙️ Attack Configuration")
+                gr.Markdown("### Attack Configuration")
                 
                 method_dropdown = gr.Dropdown(
                     choices=["SimBA"],
@@ -549,7 +549,7 @@ def create_demo_interface():
                 attack_button = gr.Button("Run Attack", variant="primary", size="lg")
             
             with gr.Column(scale=2):
-                gr.Markdown("### 📸 Image")
+                gr.Markdown("### Image")
                 
                 image_input = gr.Image(
                     type="pil",
@@ -641,7 +641,7 @@ def create_demo_interface():
         )
         
         # Example images
-        gr.Markdown("### 📁 Example Images")
+        gr.Markdown("### Example Images")
         example_images = []
         example_dir = os.path.join(project_root, "data")
         if os.path.exists(example_dir):
