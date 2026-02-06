@@ -89,9 +89,6 @@ A key property of SimBA is its **tight L₂ norm bound** due to orthonormality.
 After T successful updates (each adding ±εq):
 $$\|\delta_T\|_2 = \sqrt{T} \cdot \epsilon$$
 
-This follows because orthogonal vectors satisfy:
-$$\|\delta_T\|_2^2 = \left\|\sum_{t=1}^{T} \alpha_t q_t\right\|_2^2 = \sum_{t=1}^{T} \alpha_t^2 \|q_t\|_2^2 \leq T\epsilon^2$$
-
 **Trade-off:** Larger ε means faster convergence but higher perturbation norm.
 
 ---
@@ -138,31 +135,6 @@ SimBA.generate(x, y)
             │   └── Try -perturbation → check confidence
             └── Return adversarial image
 ```
-
----
-
-## Experimental Results (from paper)
-
-### Query Efficiency on ImageNet
-
-| Attack | Avg Queries | Avg L₂ | Success Rate |
-|--------|-------------|--------|--------------|
-| Boundary Attack | 123,407 | 5.98 | 100% |
-| Opt-attack | 71,100 | 6.98 | 100% |
-| QL-attack | 28,174 | 8.27 | 85.4% |
-| Bandits-TD | 5,251 | 5.00 | 80.5% |
-| **SimBA** | **1,665** | **3.98** | **98.6%** |
-| **SimBA-DCT** | **1,283** | **3.06** | **97.8%** |
-
-SimBA achieves **3–4× fewer queries** than the strongest baseline while maintaining near-100% success rate.
-
-### Median Queries (Untargeted)
-- **SimBA:** 944 queries
-- **SimBA-DCT:** 582 queries
-
-### Targeted Attacks
-- **SimBA:** 7,899 avg queries, 100% success
-- **SimBA-DCT:** 8,824 avg queries, 96.5% success
 
 ---
 
