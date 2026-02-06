@@ -40,3 +40,20 @@ graph TD
     G --> H{Misclassified?}
     H -- No --> F
     H -- Yes --> I[Success]
+```
+---
+
+## Quick Start
+
+1.  **Install dependencies**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+2.  **Launch the demonstrator**
+    ```bash
+    python launch_demo.py
+    ```
+
+3.  **Access the interface**
+    Open [http://127.0.0.1:7860](http://127.0.0.1:7860) in your browser.
