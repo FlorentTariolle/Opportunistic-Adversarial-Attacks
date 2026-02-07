@@ -44,21 +44,21 @@ Unlike SimBA which often uses raw probabilities, Square Attack typically uses a 
 
 ---
 
-## 3. Demonstrator Comparison Settings
+## 3. Demonstrator & Benchmark Settings
 **Standardization to $L_\infty$ Norm**
 
-To ensure a fair and consistent comparison across all algorithms in this interactive demo, we enforce the **$L_\infty$ (Chebyshev distance)** constraint for all generated adversarial examples.
+To ensure a fair and consistent comparison across all algorithms, we enforce the **$L_\infty$ (Chebyshev distance)** constraint for all generated adversarial examples.
 
 * **Why $L_\infty$?**
     While some algorithms (like SimBA) are originally formulated or often evaluated using the $L_2$ norm, the $L_\infty$ norm provides a stricter guarantee on **individual pixel changes**. This ensures that no single pixel is perturbed beyond a fixed limit $\epsilon$, making the noise more uniformly imperceptible to the human eye compared to $L_2$, which allows for large spikes in specific pixels.
 
-* **Implementation in Demo:**
+* **Implementation:**
     * **Square Attack:** Naturally supports and operates within $L_\infty$ bounds.
     * **SimBA:** The paper proposes two variants—Pixel Space (Cartesian basis) and DCT Space (low-frequency Discrete Cosine Transform basis). The demo uses **SimBA-DCT** by default, which restricts perturbations to low-frequency directions and is more query-efficient. Both variants operate under the same $\epsilon$ budget as other attacks.
 
+* **Unified Input Space:**
+    All models (standard torchvision and RobustBench) are wrapped to accept **[0, 1] pixel-space** input. Standard models use a `NormalizedModel` wrapper that applies ImageNet normalization internally. This means **$\epsilon$ is directly comparable across all attacks and models** — it always represents a perturbation in [0, 1] pixel space.
+
 * **Global Parameters:**
-    * **Square Attack $\epsilon$:** Operates in **[0, 1] pixel space**. The standard ImageNet setting is $\epsilon = 8/255 \approx 0.031$; the demo slider defaults to $0.03$.
-    * **SimBA $\epsilon$:** Operates in **ImageNet-normalized space**. Default $\epsilon = 0.03$ (in normalized units). Because each channel is divided by its standard deviation ($\sigma \approx 0.22\text{--}0.27$), the effective pixel-space perturbation per channel is $\epsilon \times \sigma$, which is smaller than the raw number suggests.
-    * **Important:** These epsilon values are **not directly comparable** across attacks — they live in different coordinate spaces. The demo slider controls each attack in its native space; a slider value of 0.03 means 0.03 in pixel space for Square Attack but 0.03 in normalized space for SimBA.
-    * **Iteration Budget:** The demo defaults to **1,000 iterations** (slider range: 100–5,000). This is independent of the paper-standard query budgets listed in Sections 1–2.
-    * **Pixel Range:** Images use standard ImageNet normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]).
+    * **$\epsilon$:** Default $8/255 \approx 0.031$ in [0, 1] pixel space (standard ImageNet $L_\infty$ benchmark setting). The demo slider selects $n/255$ with $n \in [2, 64]$.
+    * **Iteration Budget:** Default **10,000 iterations** for both attacks. Note: for Square Attack, the budget is not merely an early-stop ceiling — it controls the patch size schedule (see `SQUARE_ATTACK.md` Section 2b). A fixed budget is therefore essential for comparable iteration counts.

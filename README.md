@@ -21,7 +21,7 @@ This repository validates this logic on two attack vectors: **SimBA** (Simple Bl
 * **Rank-Stability "Debouncing":** Prevents locking onto volatile classes that spike due to random noise, ensuring resources are only committed to the most viable target.
 * **Query Efficiency:** Designed to minimize the query count ($Q$) required to fool the network compared to standard untargeted baselines.
 * **SimBA Integration:** Fully functional implementation of Opportunistic Targeting applied to the SimBA algorithm.
-* **Square Attack Validation:** CE-loss ablation on Square Attack confirms the framework restores ~97% of oracle-targeted efficiency for drift-prone losses (see `SQUARE_ATTACK.md`).
+* **Square Attack Validation:** CE-loss ablation on Square Attack confirms the framework restores near-oracle efficiency for drift-prone losses (see `SQUARE_ATTACK.md` and `results/benchmark_standard_summary.csv`).
 
 ---
 

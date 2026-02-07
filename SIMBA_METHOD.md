@@ -101,8 +101,8 @@ $$\|\delta_T\|_2 = \sqrt{T} \cdot \epsilon$$
 
 | Parameter | Default Value | Description |
 |-----------|---------------|-------------|
-| `epsilon` | 0.03 | Step size / max perturbation (L∞) |
-| `max_iterations` | 1000 | Query budget per image |
+| `epsilon` | 8/255 | Step size / max perturbation (L∞, in [0,1] pixel space) |
+| `max_iterations` | 10,000 | Query budget per image |
 | `use_dct` | True | Use DCT space (SimBA-DCT) |
 | `block_size` | 8 | DCT block size (8×8) |
 
@@ -121,7 +121,7 @@ $$\|\delta_T\|_2 = \sqrt{T} \cdot \epsilon$$
    - It causes misclassification (untargeted) or reaches the target class (targeted), OR
    - It reduces the true class confidence (untargeted) or increases the target class confidence (targeted)
 
-4. **Image normalization:** Uses standard ImageNet normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]).
+4. **Image normalization:** All models accept [0, 1] pixel-space input. Standard torchvision models are wrapped with `NormalizedModel` which applies ImageNet normalization internally.
 
 ### Code Structure
 

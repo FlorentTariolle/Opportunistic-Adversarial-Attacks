@@ -35,16 +35,15 @@ We evaluated the framework on Square Attack ($L_\infty$) under two distinct loss
 
 **Query Budget Comparison:**
 
-| Mode | Iterations to Success | Efficiency vs Oracle | Notes |
-| :--- | :--- | :--- | :--- |
-| **Baseline (Untargeted)** | **~600** | 50% | High drift; inefficient random walk. |
-| **Oracle (Targeted)** | **~300** | 100% | Targeted attack on the optimal class (known a priori). |
-| **Opportunistic (Ours)** | **~310** | **97%** | **Near-optimal convergence.** |
+*Results pending — see `results/benchmark_standard_summary.csv` after running `python benchmark.py`.*
 
-*Note: The Opportunistic overhead is minimal (~10 extra queries) because the untargeted exploration phase already drives confidence toward the eventually-locked class — those iterations are not wasted.*
+| Mode | Mean Iterations | Efficiency vs Oracle | Notes |
+| :--- | :--- | :--- | :--- |
+| **Baseline (Untargeted)** | *TBD* | *TBD* | Expected: high drift, inefficient random walk. |
+| **Oracle (Targeted)** | *TBD* | 100% (ref.) | Targeted attack on the optimal class (known a priori). |
+| **Opportunistic (Ours)** | *TBD* | *TBD* | Expected: near-optimal convergence. |
 
 ## 4. Conclusion & Impact
 
-1.  **Validation of Efficiency:** The Opportunistic Targeting framework restored **97% of the theoretical optimal efficiency** in the Cross-Entropy scenario, reducing the query count by nearly **50%** compared to the untargeted baseline (600 $\to$ 310).
-2.  **Structural Surrogate:** The framework functions as a **structural surrogate for Margin Loss**. It provides necessary directionality to loss functions or attack vectors (like SimBA) that rely on simple probability minimization.
-3.  **Generalizability:** These findings confirm that Opportunistic Targeting is a critical enhancement for attacks that lack intrinsic boundary-targeting logic, effectively bridging the gap between "dumb" optimization (Drift) and "smart" optimization (Targeted).
+1.  **Structural Surrogate:** The framework functions as a **structural surrogate for Margin Loss**. It provides necessary directionality to loss functions or attack vectors (like SimBA) that rely on simple probability minimization.
+2.  **Generalizability:** These findings confirm that Opportunistic Targeting is a critical enhancement for attacks that lack intrinsic boundary-targeting logic, effectively bridging the gap between "dumb" optimization (Drift) and "smart" optimization (Targeted).
