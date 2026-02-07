@@ -450,10 +450,19 @@ class SimBA(BaseAttack):
                     prev_max_class = current_max_class
                 continue  # Accept this perturbation and move to next iteration
 
-        # Exhausted loop: record final iteration count for benchmarking
+        # Exhausted loop: record final state for benchmarking
         num_done = min(self.max_iterations, num_candidates)
         if track_confidence and (not confidence_history['iterations'] or confidence_history['iterations'][-1] != num_done):
+            with torch.no_grad():
+                logits = self.model(x_adv.unsqueeze(0))
+                probs = torch.nn.functional.softmax(logits, dim=1)
+                final_original_conf = probs[0][y_true].item()
+                probs_excl = probs[0].clone()
+                probs_excl[y_true] = -1.0
+                final_max_other_conf = probs_excl.max().item()
             confidence_history['iterations'].append(num_done)
+            confidence_history['original_class'].append(final_original_conf)
+            confidence_history['max_other_class'].append(final_max_other_conf)
         if track_confidence:
             return x_adv, confidence_history
         return x_adv
