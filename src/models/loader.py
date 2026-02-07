@@ -1,10 +1,23 @@
 """Model loading utilities for adversarial attack demonstrations."""
 
 import warnings
-from typing import Optional, Union
+from typing import Optional, Union, List
 import torch
 import torch.nn as nn
 import torchvision.models as models
+
+
+class NormalizedModel(nn.Module):
+    """Wraps a model with input normalization so it accepts [0,1] inputs."""
+
+    def __init__(self, model: nn.Module, mean: List[float], std: List[float]):
+        super().__init__()
+        self.model = model
+        self.register_buffer('mean', torch.tensor(mean).view(1, 3, 1, 1))
+        self.register_buffer('std', torch.tensor(std).view(1, 3, 1, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.model((x - self.mean) / self.std)
 
 
 # Curated RobustBench ImageNet Linf models

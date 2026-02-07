@@ -29,7 +29,8 @@ class _OpportunisticSquare(torchattacks.Square):
                  track_confidence=False, y_true=None,
                  opportunistic=False, stability_threshold=30,
                  targeted_mode=False, target_class=None,
-                 early_stop=True, loss='margin', normalize=True):
+                 early_stop=True, loss='margin', normalize=True,
+                 seed=0):
         super().__init__(
             model,
             norm='Linf',
@@ -39,7 +40,7 @@ class _OpportunisticSquare(torchattacks.Square):
             p_init=0.8,
             loss=loss,
             resc_schedule=True,
-            seed=0,
+            seed=seed,
             verbose=False,
         )
         if normalize:
@@ -303,10 +304,12 @@ class SquareAttack(BaseAttack):
         device: Optional[torch.device] = None,
         loss: str = 'margin',
         normalize: bool = True,
+        seed: int = 0,
     ):
         super().__init__(model, epsilon, max_iterations, device)
         self.loss = loss
         self.normalize = normalize
+        self.seed_value = seed
 
     def generate(
         self,
@@ -389,6 +392,7 @@ class SquareAttack(BaseAttack):
                 early_stop=early_stop,
                 loss=self.loss,
                 normalize=self.normalize,
+                seed=self.seed_value,
             )
 
             if targeted:
