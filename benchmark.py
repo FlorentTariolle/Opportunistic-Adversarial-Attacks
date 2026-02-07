@@ -33,8 +33,7 @@ MODELS = ['resnet18', 'resnet50', 'vgg16', 'alexnet']        # → robust names
 # ---------------------------------------------------------------------------
 EPSILONS = [8 / 255]
 SEEDS = [0, 1, 2]
-MAX_ITERATIONS_SIMBA = 20_000
-MAX_ITERATIONS_SQUARE = 10_000
+MAX_ITERATIONS = 10_000
 STABILITY_THRESHOLD = {'standard': 5, 'robust': 10}
 IMAGE_FILES = ['corgi.jpg', 'porsche.jpg', 'dumbbell.jpg', 'hammer.jpg']
 IMAGE_DIR = Path('data')
@@ -95,7 +94,7 @@ def create_attack(method: str, model, epsilon: float, seed: int, device):
         return SimBA(
             model=model,
             epsilon=epsilon,
-            max_iterations=MAX_ITERATIONS_SIMBA,
+            max_iterations=MAX_ITERATIONS,
             device=device,
             use_dct=True,
             pixel_range=(0.0, 1.0),
@@ -104,7 +103,7 @@ def create_attack(method: str, model, epsilon: float, seed: int, device):
         return SquareAttack(
             model=model,
             epsilon=epsilon,
-            max_iterations=MAX_ITERATIONS_SQUARE,
+            max_iterations=MAX_ITERATIONS,
             device=device,
             loss='ce',
             normalize=False,
