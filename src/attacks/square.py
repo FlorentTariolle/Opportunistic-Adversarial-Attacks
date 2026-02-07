@@ -58,6 +58,30 @@ class _OpportunisticSquare(torchattacks.Square):
         self.confidence_history = None
 
     # ------------------------------------------------------------------
+    # Override perturb to always return best attempt, even on failure.
+    # The parent perturb() discards results where the attack didn't
+    # succeed, returning the original image unchanged.
+    # ------------------------------------------------------------------
+    def perturb(self, x, y=None):
+        self.init_hyperparam(x)
+
+        x = x.detach().clone().float().to(self.device)
+        if y is None:
+            with torch.no_grad():
+                y = self.get_logits(x).max(1)[1].detach().clone().long()
+        else:
+            y = y.detach().clone().long().to(self.device)
+
+        if self.targeted:
+            y = self.get_target_label(x, y)
+
+        torch.random.manual_seed(self.seed)
+        torch.cuda.random.manual_seed(self.seed)
+
+        _, x_best = self.attack_single_run(x, y)
+        return x_best
+
+    # ------------------------------------------------------------------
     # Linf branch of attack_single_run, with hooks injected
     # ------------------------------------------------------------------
     def attack_single_run(self, x, y):
@@ -249,6 +273,12 @@ class _OpportunisticSquare(torchattacks.Square):
                 ind_succ = (margin_min <= 0.0).nonzero().squeeze()
                 if ind_succ.numel() == n_ex_total and self._early_stop:
                     break
+
+            # Record final iteration so budget display is accurate
+            if self._track_confidence and n_ex_total == 1:
+                final_iter = i_iter + 1
+                if not confidence_history['iterations'] or confidence_history['iterations'][-1] != final_iter:
+                    _record_confidence(x_best, final_iter)
 
             self.confidence_history = confidence_history
             self.targeted = _orig_targeted
