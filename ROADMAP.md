@@ -10,6 +10,6 @@
 ## Phase 2: Robustness Validation (Hardened Models)
 *Goal: Verify effectiveness against models with smoothed decision boundaries.*
 
-- [ ] **RobustBench Integration:** Add support for loading robustly trained models (e.g., adversarial training).
+- [x] **RobustBench Integration:** Add support for loading robustly trained models (e.g., adversarial training).
 - [ ] **Stress Testing:** Run Opportunistic attacks against hardened targets.
 - [ ] **Analysis:** Determine if the "Path of Least Resistance" strategy remains effective in robust latent spaces where margins are maximized.
