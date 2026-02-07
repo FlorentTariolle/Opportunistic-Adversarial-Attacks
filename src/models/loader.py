@@ -6,6 +6,16 @@ import torch.nn as nn
 import torchvision.models as models
 
 
+# Curated RobustBench ImageNet Linf models
+ROBUSTBENCH_MODELS = {
+    'Salman2020Do_R18': 'Salman2020Do_R18',
+    'Salman2020Do_R50': 'Salman2020Do_R50',
+    'Wong2020Fast': 'Wong2020Fast',
+    'Engstrom2019Robustness': 'Engstrom2019Robustness',
+    'Debenedetti2022Light_XCiT-S12': 'Debenedetti2022Light_XCiT-S12',
+}
+
+
 def load_pretrained_model(
     model_name: str = 'resnet18',
     num_classes: Optional[int] = None,
@@ -87,17 +97,59 @@ def load_pretrained_model(
     return model
 
 
-def get_model(
-    model_name: str = 'resnet18',
+def load_robustbench_model(
+    model_name: str,
     device: Optional[torch.device] = None
 ) -> nn.Module:
+    """Load an adversarially-trained model from RobustBench.
+
+    Uses lazy import to avoid slow timm/robustbench startup overhead.
+
+    Args:
+        model_name: RobustBench model identifier (e.g. 'Salman2020Do_R50').
+        device: Device to load the model on. If None, uses CPU.
+
+    Returns:
+        Loaded model in eval mode. Expects [0, 1] input (has built-in normalizer).
+
+    Raises:
+        ValueError: If model_name is not in ROBUSTBENCH_MODELS.
+    """
+    if model_name not in ROBUSTBENCH_MODELS:
+        raise ValueError(
+            f"RobustBench model '{model_name}' not supported. "
+            f"Supported: {list(ROBUSTBENCH_MODELS.keys())}"
+        )
+
+    if device is None:
+        device = torch.device('cpu')
+
+    from robustbench.utils import load_model
+    model = load_model(
+        model_name=ROBUSTBENCH_MODELS[model_name],
+        dataset='imagenet',
+        threat_model='Linf',
+    )
+    model = model.to(device)
+    model.eval()
+    return model
+
+
+def get_model(
+    model_name: str = 'resnet18',
+    device: Optional[torch.device] = None,
+    source: str = 'standard',
+) -> nn.Module:
     """Convenience function to get a pretrained model.
-    
+
     Args:
         model_name: Name of the model to load.
         device: Device to load the model on.
-    
+        source: 'standard' for torchvision models, 'robust' for RobustBench.
+
     Returns:
         Loaded model in eval mode.
     """
+    if source == 'robust':
+        return load_robustbench_model(model_name=model_name, device=device)
     return load_pretrained_model(model_name=model_name, device=device)

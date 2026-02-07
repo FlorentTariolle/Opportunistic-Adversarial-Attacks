@@ -5,3 +5,4 @@ jupyter>=1.0.0
 notebook>=6.5.0
 gradio>=4.0.0
 torchattacks>=3.5.0
+robustbench @ git+https://github.com/RobustBench/robustbench.git

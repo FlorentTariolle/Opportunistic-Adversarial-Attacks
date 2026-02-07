@@ -29,7 +29,7 @@ class _OpportunisticSquare(torchattacks.Square):
                  track_confidence=False, y_true=None,
                  opportunistic=False, stability_threshold=30,
                  targeted_mode=False, target_class=None,
-                 early_stop=True, loss='margin'):
+                 early_stop=True, loss='margin', normalize=True):
         super().__init__(
             model,
             norm='Linf',
@@ -42,7 +42,8 @@ class _OpportunisticSquare(torchattacks.Square):
             seed=0,
             verbose=False,
         )
-        self.set_normalization_used(IMAGENET_MEAN, IMAGENET_STD)
+        if normalize:
+            self.set_normalization_used(IMAGENET_MEAN, IMAGENET_STD)
 
         # Hook configuration
         self._track_confidence = track_confidence
@@ -271,9 +272,11 @@ class SquareAttack(BaseAttack):
         max_iterations: int = 1000,
         device: Optional[torch.device] = None,
         loss: str = 'margin',
+        normalize: bool = True,
     ):
         super().__init__(model, epsilon, max_iterations, device)
         self.loss = loss
+        self.normalize = normalize
 
     def generate(
         self,
@@ -355,6 +358,7 @@ class SquareAttack(BaseAttack):
                 target_class=t_cls,
                 early_stop=early_stop,
                 loss=self.loss,
+                normalize=self.normalize,
             )
 
             if targeted:

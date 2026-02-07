@@ -18,7 +18,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.models.loader import get_model
+from src.models.loader import get_model, ROBUSTBENCH_MODELS
 from src.utils.imaging import (
     preprocess_image,
     denormalize_image,
@@ -29,24 +29,29 @@ from src.utils.imaging import (
 )
 from src.attacks import SimBA, SquareAttack
 
+# Standard torchvision model choices
+STANDARD_MODELS = ["resnet18", "resnet34", "resnet50", "vgg16", "vgg19", "alexnet"]
+
 
 # Global model cache
 _model_cache = {}
 _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def get_cached_model(model_name: str = 'resnet18'):
+def get_cached_model(model_name: str = 'resnet18', source: str = 'standard'):
     """Get or load a cached model.
-    
+
     Args:
-        model_name: Name of the model to load (e.g., 'resnet18', 'vgg16').
-    
+        model_name: Name of the model to load.
+        source: 'standard' for torchvision, 'robust' for RobustBench.
+
     Returns:
         Loaded model in eval mode.
     """
-    if model_name not in _model_cache:
-        _model_cache[model_name] = get_model(model_name=model_name, device=_device)
-    return _model_cache[model_name]
+    cache_key = (model_name, source)
+    if cache_key not in _model_cache:
+        _model_cache[cache_key] = get_model(model_name=model_name, device=_device, source=source)
+    return _model_cache[cache_key]
 
 
 def tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
@@ -80,21 +85,26 @@ def tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
 
 def compute_perturbation_visualization(
     original: torch.Tensor,
-    adversarial: torch.Tensor
+    adversarial: torch.Tensor,
+    is_robust: bool = False,
 ) -> Image.Image:
     """Compute and visualize perturbation (scaled for visibility).
-    
+
     Args:
-        original: Original image tensor (normalized).
-        adversarial: Adversarial image tensor (normalized).
-    
+        original: Original image tensor.
+        adversarial: Adversarial image tensor.
+        is_robust: If True, tensors are already in [0, 1] (skip denormalization).
+
     Returns:
         PIL Image showing the perturbation scaled for visibility.
     """
-    # Denormalize both images
-    orig_denorm = denormalize_image(original)
-    adv_denorm = denormalize_image(adversarial)
-    
+    if is_robust:
+        orig_denorm = original
+        adv_denorm = adversarial
+    else:
+        orig_denorm = denormalize_image(original)
+        adv_denorm = denormalize_image(adversarial)
+
     # Compute perturbation
     perturbation = adv_denorm - orig_denorm
     
@@ -215,31 +225,33 @@ def create_confidence_graph(
     return img
 
 
-def predict_image(image: Image.Image, model_name: str = 'resnet18') -> Tuple[str, float, int]:
+def predict_image(
+    image: Image.Image,
+    model_name: str = 'resnet18',
+    source: str = 'standard',
+) -> Tuple[str, float, int]:
     """Get model prediction for an image.
-    
+
     Args:
         image: Input PIL Image.
         model_name: Name of the model to use for prediction.
-    
+        source: 'standard' or 'robust'.
+
     Returns:
-        Tuple of (label, confidence, class_index) where:
-        - label: Human-readable class label
-        - confidence: Prediction confidence (0-1)
-        - class_index: ImageNet class index
+        Tuple of (label, confidence, class_index).
     """
-    model = get_cached_model(model_name)
-    
-    # Preprocess image
-    image_tensor = preprocess_image(image, device=_device)
-    
-    # Get prediction
+    is_robust = (source == 'robust')
+    model = get_cached_model(model_name, source=source)
+
+    # Robust models have built-in normalizer; skip ImageNet normalization
+    image_tensor = preprocess_image(image, normalize=not is_robust, device=_device)
+
     with torch.no_grad():
         logits = model(image_tensor)
         probs = F.softmax(logits, dim=1)
         predicted_class = torch.argmax(logits, dim=1).item()
         confidence = probs[0][predicted_class].item()
-    
+
     label = get_imagenet_label(predicted_class)
     return label, confidence, predicted_class
 
@@ -254,7 +266,8 @@ def run_attack(
     target_class: Optional[int] = None,
     opportunistic: bool = False,
     stability_threshold: int = 30,
-    loss: str = 'margin'
+    loss: str = 'margin',
+    source: str = 'standard',
 ) -> Tuple[Image.Image, Image.Image, Image.Image, str]:
     """Run adversarial attack on the image.
 
@@ -269,23 +282,22 @@ def run_attack(
         opportunistic: If True, start untargeted and switch to targeted when max class stabilizes.
         stability_threshold: Number of consecutive accepted perturbations before switching.
         loss: Loss function for Square Attack ('margin' or 'ce').
+        source: 'standard' or 'robust'.
 
     Returns:
-        Tuple of (adversarial_image, perturbation_image, confidence_graph, result_text):
-        - adversarial_image: Generated adversarial example
-        - perturbation_image: Visualization of the perturbation (scaled)
-        - confidence_graph: Graph showing confidence evolution during attack
-        - result_text: Formatted text with attack results
+        Tuple of (adversarial_image, perturbation_image, confidence_graph, result_text).
     """
     if image is None:
         return None, None, None, "Please upload an image first."
-    
+
+    is_robust = (source == 'robust')
+
     try:
         # Load model
-        model = get_cached_model(model_name)
-        
-        # Preprocess image
-        image_tensor = preprocess_image(image, device=_device)
+        model = get_cached_model(model_name, source=source)
+
+        # Robust models have built-in normalizer; skip ImageNet normalization
+        image_tensor = preprocess_image(image, normalize=not is_robust, device=_device)
         
         # Get original prediction
         with torch.no_grad():
@@ -303,7 +315,8 @@ def run_attack(
                 epsilon=epsilon,
                 max_iterations=max_iterations,
                 device=_device,
-                use_dct=True
+                use_dct=True,
+                pixel_range=(0.0, 1.0) if is_robust else (-3.0, 3.0),
             )
         elif method == "Square Attack":
             attack = SquareAttack(
@@ -311,7 +324,8 @@ def run_attack(
                 epsilon=epsilon,
                 max_iterations=max_iterations,
                 device=_device,
-                loss=loss
+                loss=loss,
+                normalize=not is_robust,
             )
         else:
             return None, None, None, f"Unknown attack method: {method}"
@@ -354,7 +368,9 @@ def run_attack(
         adv_image = tensor_to_pil(x_adv)
 
         # Compute perturbation visualization
-        perturbation_image = compute_perturbation_visualization(image_tensor, x_adv)
+        perturbation_image = compute_perturbation_visualization(
+            image_tensor, x_adv, is_robust=is_robust
+        )
 
         # Get confidence history and check for opportunistic switch
         ch = getattr(attack, 'confidence_history', None)
@@ -518,8 +534,15 @@ def create_demo_interface():
                     info="Maximum number of attack iterations"
                 )
                 
+                model_source_radio = gr.Radio(
+                    choices=["Standard", "Robust (RobustBench)"],
+                    value="Standard",
+                    label="Model Source",
+                    info="Standard: torchvision models. Robust: adversarially-trained (RobustBench ImageNet Linf)."
+                )
+
                 model_dropdown = gr.Dropdown(
-                    choices=["resnet18", "resnet34", "resnet50", "vgg16", "vgg19", "alexnet"],
+                    choices=STANDARD_MODELS,
                     value="resnet18",
                     label="Model",
                     info="Target model to attack"
@@ -685,43 +708,47 @@ def create_demo_interface():
         )
 
         # When hidden image_input changes (from upload or example), preprocess and show
-        def update_original(image, model):
+        def update_original(image, model, source_choice):
             if image is None:
                 return None, ""
             try:
-                preprocessed = preprocess_image(image, device=_device)
+                source = 'robust' if source_choice == "Robust (RobustBench)" else 'standard'
+                is_robust = (source == 'robust')
+                preprocessed = preprocess_image(image, normalize=not is_robust, device=_device)
                 original_pil = tensor_to_pil(preprocessed)
-                label, confidence, _ = predict_image(image, model)
+                label, confidence, _ = predict_image(image, model, source=source)
                 return original_pil, f"**Original Prediction:** {label} ({confidence:.2%})"
             except Exception as e:
                 return image, f"Error: {str(e)}"
 
         image_input.change(
             fn=update_original,
-            inputs=[image_input, model_dropdown],
+            inputs=[image_input, model_dropdown, model_source_radio],
             outputs=[original_output, result_text]
         )
 
         # Only update prediction text when model changes (preprocessing is model-independent)
-        def update_prediction(image, model):
+        def update_prediction(image, model, source_choice):
             if image is None:
                 return ""
             try:
-                label, confidence, _ = predict_image(image, model)
+                source = 'robust' if source_choice == "Robust (RobustBench)" else 'standard'
+                label, confidence, _ = predict_image(image, model, source=source)
                 return f"**Original Prediction:** {label} ({confidence:.2%})"
             except Exception as e:
                 return f"Error: {str(e)}"
 
         model_dropdown.change(
             fn=update_prediction,
-            inputs=[image_input, model_dropdown],
+            inputs=[image_input, model_dropdown, model_source_radio],
             outputs=[result_text]
         )
         
         # Run attack when button is clicked
         # Note: original_output is NOT in outputs - it stays static during attack
         def execute_attack(image, method, epsilon, max_iter, model, loss_choice,
-                          mode, target_cls_idx, opportunistic, stability_threshold):
+                          mode, target_cls_idx, opportunistic, stability_threshold,
+                          source_choice):
             if image is None:
                 return None, None, None, "Please upload an image first."
 
@@ -734,11 +761,13 @@ def create_demo_interface():
             # Map UI label to torchattacks loss name
             loss = 'margin' if loss_choice == "Margin" else 'ce'
 
+            source = 'robust' if source_choice == "Robust (RobustBench)" else 'standard'
+
             adv_image, pert_image, conf_graph, result = run_attack(
                 image, method, epsilon, max_iter, model,
                 targeted=targeted, target_class=target_class,
                 opportunistic=use_opportunistic, stability_threshold=int(stability_threshold),
-                loss=loss
+                loss=loss, source=source,
             )
             return adv_image, pert_image, conf_graph, result
 
@@ -746,10 +775,33 @@ def create_demo_interface():
             fn=execute_attack,
             inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider,
                     model_dropdown, loss_radio, attack_mode, target_class_number,
-                    opportunistic_checkbox, stability_threshold_slider],
+                    opportunistic_checkbox, stability_threshold_slider,
+                    model_source_radio],
             outputs=[adversarial_output, perturbation_output, confidence_graph_output, result_text]
         )
         
+        # Update model dropdown and prediction when source changes
+        def on_source_change(source_choice, current_image):
+            is_robust = (source_choice == "Robust (RobustBench)")
+            choices = list(ROBUSTBENCH_MODELS.keys()) if is_robust else STANDARD_MODELS
+            default = choices[0]
+            source = 'robust' if is_robust else 'standard'
+            if current_image is not None:
+                try:
+                    label, confidence, _ = predict_image(current_image, default, source=source)
+                    pred_text = f"**Original Prediction:** {label} ({confidence:.2%})"
+                except Exception as e:
+                    pred_text = f"Error: {str(e)}"
+            else:
+                pred_text = ""
+            return gr.Dropdown(choices=choices, value=default), pred_text
+
+        model_source_radio.change(
+            fn=on_source_change,
+            inputs=[model_source_radio, image_input],
+            outputs=[model_dropdown, result_text]
+        )
+
         # Example images
         gr.Markdown("### Example Images")
         example_images = []

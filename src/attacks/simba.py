@@ -22,10 +22,11 @@ class SimBA(BaseAttack):
         max_iterations: int = 1000,
         device: Optional[torch.device] = None,
         use_dct: bool = True,
-        block_size: int = 8
+        block_size: int = 8,
+        pixel_range: Tuple[float, float] = (-3.0, 3.0),
     ):
         """Initialize SimBA attack.
-        
+
         Args:
             model: The target model to attack.
             epsilon: Maximum perturbation magnitude (L∞ norm).
@@ -33,10 +34,13 @@ class SimBA(BaseAttack):
             device: Device to run the attack on.
             use_dct: If True, use DCT space for perturbations; else use pixel space.
             block_size: Block size for DCT transform (only used if use_dct=True).
+            pixel_range: Valid value range for clipping. Use (-3.0, 3.0) for
+                ImageNet-normalized inputs, (0.0, 1.0) for unnormalized / robust models.
         """
         super().__init__(model, epsilon, max_iterations, device)
         self.use_dct = use_dct
         self.block_size = block_size
+        self.pixel_range = pixel_range
         # Cache for DCT basis vectors (computed on first use)
         self._dct_basis_cache = None
         self._dct_basis_shape = None
@@ -260,7 +264,7 @@ class SimBA(BaseAttack):
             # Clip perturbation to respect epsilon constraint and valid pixel range
             # For normalized ImageNet images, use reasonable bounds
             perturbation_clipped = self.clip_perturbation(
-                x_adv, perturbation, pixel_range=(-3.0, 3.0)
+                x_adv, perturbation, pixel_range=self.pixel_range
             )
             x_candidate = x_adv + perturbation_clipped
             x_candidate_batch = x_candidate.unsqueeze(0)
@@ -355,7 +359,7 @@ class SimBA(BaseAttack):
             negative_perturbation = -perturbation
             # Clip perturbation to respect epsilon constraint and valid pixel range
             perturbation_clipped = self.clip_perturbation(
-                x_adv, negative_perturbation, pixel_range=(-3.0, 3.0)
+                x_adv, negative_perturbation, pixel_range=self.pixel_range
             )
             x_candidate = x_adv + perturbation_clipped
             x_candidate_batch = x_candidate.unsqueeze(0)
