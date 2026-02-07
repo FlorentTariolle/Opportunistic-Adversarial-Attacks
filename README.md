@@ -43,7 +43,7 @@ graph TD
     H -- Yes --> I[Success]
 ```
 
-*S = `stability_threshold` (default 5). An "accepted perturbation" is a step that improved the adversarial loss — not every query counts toward S.*
+*S = `stability_threshold` (default 5 for standard models, 10 is safer especially for robust models that are very noisy at the beginning of the untargeted drift). An "accepted perturbation" is a step that improved the adversarial loss — not every query counts toward S.*
 
 ---
 
