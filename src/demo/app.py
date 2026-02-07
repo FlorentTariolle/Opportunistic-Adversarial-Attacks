@@ -558,12 +558,12 @@ def create_demo_interface():
                 )
                 
                 epsilon_slider = gr.Slider(
-                    minimum=0.01,
-                    maximum=0.5,
-                    value=0.03,
-                    step=0.01,
-                    label="Epsilon (ε)",
-                    info="Maximum perturbation magnitude (L∞ norm)"
+                    minimum=2,
+                    maximum=64,
+                    value=8,
+                    step=1,
+                    label="Epsilon (ε) — n/255",
+                    info="Maximum perturbation magnitude (L∞ norm): n / 255"
                 )
                 
                 max_iter_slider = gr.Slider(
@@ -645,12 +645,12 @@ def create_demo_interface():
                 )
 
                 stability_threshold_slider = gr.Slider(
-                    minimum=5,
-                    maximum=50,
+                    minimum=1,
+                    maximum=20,
                     value=5,
-                    step=5,
+                    step=1,
                     label="Stability Threshold",
-                    info="Consecutive accepted perturbations before switching to targeted",
+                    info="Consecutive accepted perturbations before switching to targeted (5 for standard, 10 for robust)",
                     visible=False
                 )
 
@@ -787,12 +787,13 @@ def create_demo_interface():
         
         # Run attack when button is clicked
         # Note: original_output is NOT in outputs - it stays static during attack
-        def execute_attack(image, method, epsilon, max_iter, model, loss_choice,
+        def execute_attack(image, method, epsilon_n, max_iter, model, loss_choice,
                           mode, target_cls_idx, opportunistic, stability_threshold,
                           source_choice):
             if image is None:
                 return None, None, None, "Please upload an image first."
 
+            epsilon = int(epsilon_n) / 255.0
             targeted = (mode == "Targeted")
             target_class = max(0, min(999, int(target_cls_idx))) if targeted and target_cls_idx is not None else None
 
@@ -827,6 +828,7 @@ def create_demo_interface():
             choices = list(ROBUSTBENCH_MODELS.keys()) if is_robust else STANDARD_MODELS
             default = choices[0]
             source = 'robust' if is_robust else 'standard'
+            stability_default = 10 if is_robust else 5
             if current_image is not None:
                 try:
                     label, confidence, _ = predict_image(current_image, default, source=source)
@@ -835,12 +837,12 @@ def create_demo_interface():
                     pred_text = f"Error: {str(e)}"
             else:
                 pred_text = ""
-            return gr.Dropdown(choices=choices, value=default), pred_text
+            return gr.Dropdown(choices=choices, value=default), pred_text, gr.update(value=stability_default)
 
         model_source_radio.change(
             fn=on_source_change,
             inputs=[model_source_radio, image_input],
-            outputs=[model_dropdown, result_text]
+            outputs=[model_dropdown, result_text, stability_threshold_slider]
         )
 
         # Example images
