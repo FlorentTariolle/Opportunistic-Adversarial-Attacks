@@ -3,6 +3,6 @@ matplotlib>=3.7.0
 Pillow>=10.0.0
 jupyter>=1.0.0
 notebook>=6.5.0
-gradio>=4.0.0
+gradio>=6.2.0
 torchattacks>=3.5.0
 robustbench @ git+https://github.com/RobustBench/robustbench.git
