@@ -18,7 +18,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.models.loader import get_model, ROBUSTBENCH_MODELS
+from src.models.loader import get_model, ROBUSTBENCH_MODELS, NormalizedModel, load_pretrained_model, load_robustbench_model
 from src.utils.imaging import (
     preprocess_image,
     denormalize_image,
@@ -41,72 +41,66 @@ _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def get_cached_model(model_name: str = 'resnet18', source: str = 'standard'):
     """Get or load a cached model.
 
+    All returned models accept [0,1] input. Standard models are wrapped
+    with NormalizedModel; robust models already have a built-in normalizer.
+
     Args:
         model_name: Name of the model to load.
         source: 'standard' for torchvision, 'robust' for RobustBench.
 
     Returns:
-        Loaded model in eval mode.
+        Loaded model in eval mode, accepting [0,1] input.
     """
     cache_key = (model_name, source)
     if cache_key not in _model_cache:
-        _model_cache[cache_key] = get_model(model_name=model_name, device=_device, source=source)
+        if source == 'standard':
+            raw = load_pretrained_model(model_name, device=_device)
+            _model_cache[cache_key] = NormalizedModel(raw, IMAGENET_MEAN, IMAGENET_STD).to(_device)
+        else:
+            _model_cache[cache_key] = load_robustbench_model(model_name, device=_device)
+        _model_cache[cache_key].eval()
     return _model_cache[cache_key]
 
 
 def tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
-    """Convert a tensor to PIL Image.
-    
+    """Convert a [0,1] tensor to PIL Image.
+
     Args:
-        tensor: Input tensor of shape (C, H, W) or (1, C, H, W), 
-                optionally normalized (values may be negative).
-    
+        tensor: Input tensor of shape (C, H, W) or (1, C, H, W) in [0,1].
+
     Returns:
         PIL Image with values in [0, 255] range.
     """
     # Remove batch dimension if present
     if tensor.dim() == 4:
         tensor = tensor[0]
-    
-    # Denormalize if needed
-    if tensor.min() < 0:  # Likely normalized
-        tensor = denormalize_image(tensor.unsqueeze(0)).squeeze(0)
-    
+
     # Convert to numpy and transpose if needed
     if tensor.shape[0] == 3:  # CHW format
         tensor = tensor.permute(1, 2, 0)
-    
+
     # Clamp to [0, 1] and convert to uint8
     tensor = torch.clamp(tensor, 0.0, 1.0)
     numpy_array = (tensor.cpu().detach().numpy() * 255).astype(np.uint8)
-    
+
     return Image.fromarray(numpy_array)
 
 
 def compute_perturbation_visualization(
     original: torch.Tensor,
     adversarial: torch.Tensor,
-    is_robust: bool = False,
 ) -> Image.Image:
     """Compute and visualize perturbation (scaled for visibility).
 
     Args:
-        original: Original image tensor.
-        adversarial: Adversarial image tensor.
-        is_robust: If True, tensors are already in [0, 1] (skip denormalization).
+        original: Original image tensor in [0,1].
+        adversarial: Adversarial image tensor in [0,1].
 
     Returns:
         PIL Image showing the perturbation scaled for visibility.
     """
-    if is_robust:
-        orig_denorm = original
-        adv_denorm = adversarial
-    else:
-        orig_denorm = denormalize_image(original)
-        adv_denorm = denormalize_image(adversarial)
-
     # Compute perturbation
-    perturbation = adv_denorm - orig_denorm
+    perturbation = adversarial - original
     
     # Remove batch dimension if present
     if perturbation.dim() == 4:
@@ -246,11 +240,10 @@ def predict_image(
     Returns:
         Tuple of (label, confidence, class_index).
     """
-    is_robust = (source == 'robust')
     model = get_cached_model(model_name, source=source)
 
-    # Robust models have built-in normalizer; skip ImageNet normalization
-    image_tensor = preprocess_image(image, normalize=not is_robust, device=_device)
+    # All models accept [0,1] input (standard wrapped with NormalizedModel)
+    image_tensor = preprocess_image(image, normalize=False, device=_device)
 
     with torch.no_grad():
         logits = model(image_tensor)
@@ -274,6 +267,7 @@ def run_attack(
     stability_threshold: int = 30,
     loss: str = 'margin',
     source: str = 'standard',
+    seed: int = 42,
 ) -> Tuple[Image.Image, Image.Image, Image.Image, str]:
     """Run adversarial attack on the image.
 
@@ -296,14 +290,12 @@ def run_attack(
     if image is None:
         return None, None, None, "Please upload an image first."
 
-    is_robust = (source == 'robust')
-
     try:
-        # Load model
+        # Load model — all models accept [0,1] input
         model = get_cached_model(model_name, source=source)
 
-        # Robust models have built-in normalizer; skip ImageNet normalization
-        image_tensor = preprocess_image(image, normalize=not is_robust, device=_device)
+        # All models accept [0,1]; no ImageNet normalization needed
+        image_tensor = preprocess_image(image, normalize=False, device=_device)
         
         # Get original prediction
         with torch.no_grad():
@@ -318,7 +310,12 @@ def run_attack(
 
         original_label = get_imagenet_label(original_class)
         
-        # Initialize attack based on method
+        # Seed for reproducibility
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+
+        # Initialize attack — all models accept [0,1], so config is uniform
         if method == "SimBA":
             attack = SimBA(
                 model=model,
@@ -326,7 +323,7 @@ def run_attack(
                 max_iterations=max_iterations,
                 device=_device,
                 use_dct=True,
-                pixel_range=(0.0, 1.0) if is_robust else (-3.0, 3.0),
+                pixel_range=(0.0, 1.0),
             )
         elif method == "Square Attack":
             attack = SquareAttack(
@@ -335,7 +332,8 @@ def run_attack(
                 max_iterations=max_iterations,
                 device=_device,
                 loss=loss,
-                normalize=not is_robust,
+                normalize=False,
+                seed=seed,
             )
         else:
             return None, None, None, f"Unknown attack method: {method}"
@@ -394,7 +392,7 @@ def run_attack(
 
         # Compute perturbation visualization
         perturbation_image = compute_perturbation_visualization(
-            image_tensor, x_adv, is_robust=is_robust
+            image_tensor, x_adv
         )
 
         # Get confidence history and check for opportunistic switch
@@ -568,11 +566,20 @@ def create_demo_interface():
                 
                 max_iter_slider = gr.Slider(
                     minimum=500,
-                    maximum=10000,
-                    value=1000,
-                    step=100,
+                    maximum=20000,
+                    value=10000,
+                    step=500,
                     label="Max Iterations",
-                    info="Maximum number of attack iterations"
+                    info="Maximum number of attack iterations (affects Square Attack patch schedule)"
+                )
+
+                seed_slider = gr.Slider(
+                    minimum=0,
+                    maximum=99,
+                    value=42,
+                    step=1,
+                    label="Seed",
+                    info="Random seed for reproducibility"
                 )
                 
                 model_source_radio = gr.Radio(
@@ -754,8 +761,7 @@ def create_demo_interface():
                 return None, ""
             try:
                 source = 'robust' if source_choice == "Robust (RobustBench)" else 'standard'
-                is_robust = (source == 'robust')
-                preprocessed = preprocess_image(image, normalize=not is_robust, device=_device)
+                preprocessed = preprocess_image(image, normalize=False, device=_device)
                 original_pil = tensor_to_pil(preprocessed)
                 label, confidence, _ = predict_image(image, model, source=source)
                 return original_pil, f"**Original Prediction:** {label} ({confidence:.2%})"
@@ -789,7 +795,7 @@ def create_demo_interface():
         # Note: original_output is NOT in outputs - it stays static during attack
         def execute_attack(image, method, epsilon_n, max_iter, model, loss_choice,
                           mode, target_cls_idx, opportunistic, stability_threshold,
-                          source_choice):
+                          source_choice, seed):
             if image is None:
                 return None, None, None, "Please upload an image first."
 
@@ -809,7 +815,7 @@ def create_demo_interface():
                 image, method, epsilon, max_iter, model,
                 targeted=targeted, target_class=target_class,
                 opportunistic=use_opportunistic, stability_threshold=int(stability_threshold),
-                loss=loss, source=source,
+                loss=loss, source=source, seed=int(seed),
             )
             return adv_image, pert_image, conf_graph, result
 
@@ -818,7 +824,7 @@ def create_demo_interface():
             inputs=[image_input, method_dropdown, epsilon_slider, max_iter_slider,
                     model_dropdown, loss_radio, attack_mode, target_class_number,
                     opportunistic_checkbox, stability_threshold_slider,
-                    model_source_radio],
+                    model_source_radio, seed_slider],
             outputs=[adversarial_output, perturbation_output, confidence_graph_output, result_text]
         )
         
