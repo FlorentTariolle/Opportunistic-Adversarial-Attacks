@@ -373,7 +373,18 @@ def run_attack(
         iterations_used = ch['iterations'][-1] if ch and ch.get('iterations') else None
         budget_display = f"{iterations_used} iterations / {max_iterations}" if iterations_used is not None else f"? iterations / {max_iterations}"
 
+        # Compute perturbation metrics
+        total_perturbation = (x_adv - image_tensor).squeeze(0)
+        linf = total_perturbation.abs().max().item()
+        l2 = total_perturbation.norm(2).item()
+        mean_l1 = total_perturbation.abs().mean().item()
+
         # Create result message
+        perturbation_section = f"""**Perturbation Metrics:**
+- L∞: {linf:.4f}
+- L2: {l2:.4f}
+- Mean L1: {mean_l1:.6f}"""
+
         if targeted and target_class is not None:
             result_text = f"""**Attack Mode:** Targeted
 
@@ -389,6 +400,8 @@ def run_attack(
 - Confidence: {adv_confidence:.2%}
 
 **Budget:** {budget_display}
+
+{perturbation_section}
 
 **Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
 """
@@ -410,6 +423,8 @@ def run_attack(
 
 **Budget:** {budget_display}
 
+{perturbation_section}
+
 **Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
 """
         else:
@@ -425,9 +440,11 @@ def run_attack(
 
 **Budget:** {budget_display}
 
+{perturbation_section}
+
 **Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
 """
-        
+
         return adv_image, perturbation_image, confidence_graph, result_text
         
     except Exception as e:
@@ -485,7 +502,7 @@ def create_demo_interface():
                 
                 epsilon_slider = gr.Slider(
                     minimum=0.01,
-                    maximum=2.0,
+                    maximum=0.5,
                     value=0.03,
                     step=0.01,
                     label="Epsilon (ε)",
