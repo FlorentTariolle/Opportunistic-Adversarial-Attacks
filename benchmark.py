@@ -215,8 +215,6 @@ def run_targeted_oracle_pipeline(model, method, eps, seed, x, y_true, device,
         # Check if already done (crash recovery)
         key = (model_name, method, f"{eps:.6f}", str(seed), image_name, mode)
         if key in existing_keys:
-            completed_count += 1
-            # Count as success if it was successful before (we don't know, skip)
             continue
 
         attack = create_attack(method, model, eps, seed, device)
