@@ -517,12 +517,18 @@ def create_demo_interface():
                 )
 
                 # Show/hide loss selector based on attack method
-                def update_loss_visibility(method):
-                    return gr.update(visible=(method == "Square Attack"))
+                def update_loss_visibility(method, current_loss):
+                    return gr.Radio(
+                        choices=["Cross-Entropy", "Margin"],
+                        value=current_loss,
+                        label="Loss Function",
+                        info="Loss optimized by Square Attack",
+                        visible=(method == "Square Attack"),
+                    )
 
                 method_dropdown.change(
                     fn=update_loss_visibility,
-                    inputs=[method_dropdown],
+                    inputs=[method_dropdown, loss_radio],
                     outputs=[loss_radio]
                 )
 
@@ -709,7 +715,7 @@ def create_demo_interface():
             use_opportunistic = opportunistic and not targeted
 
             # Map UI label to torchattacks loss name
-            loss = 'ce' if loss_choice == "Cross-Entropy" else 'margin'
+            loss = 'margin' if loss_choice == "Margin" else 'ce'
 
             adv_image, pert_image, conf_graph, result = run_attack(
                 image, method, epsilon, max_iter, model,
