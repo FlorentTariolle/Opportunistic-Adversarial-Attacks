@@ -1,5 +1,6 @@
 """Model loading utilities for adversarial attack demonstrations."""
 
+import warnings
 from typing import Optional, Union
 import torch
 import torch.nn as nn
@@ -125,11 +126,13 @@ def load_robustbench_model(
         device = torch.device('cpu')
 
     from robustbench.utils import load_model
-    model = load_model(
-        model_name=ROBUSTBENCH_MODELS[model_name],
-        dataset='imagenet',
-        threat_model='Linf',
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only.*")
+        model = load_model(
+            model_name=ROBUSTBENCH_MODELS[model_name],
+            dataset='imagenet',
+            threat_model='Linf',
+        )
     model = model.to(device)
     model.eval()
     return model
