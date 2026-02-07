@@ -10,6 +10,16 @@ We posit that standard Untargeted attacks utilizing simple probability minimizat
 
 **Hypothesis:** *Opportunistic Targeting acts as an external guidance system, artificially imposing directionality on drift-prone loss functions, thereby restoring query efficiency.*
 
+## 2b. Methodological Note: Budget-Dependent Patch Schedule
+
+Unlike SimBA, where the iteration budget is a simple early-stop ceiling with no effect on per-iteration behavior, **Square Attack's patch size schedule is a function of the total query budget**. The original paper states:
+
+> *"With N=10000 iterations available, we halve the value of p at i∈{10,50,200,1000,2000,4000,6000,8000} iterations. For different N we rescale the schedule accordingly."* — Andriushchenko et al., ECCV 2020
+
+The `torchattacks` implementation rescales via `it = int(it / n_queries * 10000)`, mapping every run onto a normalized 0–10000 timeline. This means that at iteration $i$, the patch side length $s = \lfloor\sqrt{p \cdot H \cdot W}\rfloor$ depends on the ratio $i / N$, not on $i$ alone. A budget of $N=10\text{K}$ keeps the initial patch size ($p=0.8$, covering ~80% of the image) for the first 10 iterations, while a budget of $N=1\text{K}$ already halves it by iteration 1.
+
+**Consequence for benchmarking:** iteration counts obtained under different budgets are **not comparable**. An attack with $N=10\text{K}$ that succeeds at iteration 5 used much larger patches than one with $N=1\text{K}$ succeeding at iteration 26 — yet both represent roughly the same amount of "work" relative to their schedule. All experiments in this document therefore use a **fixed budget of $N=10\text{K}$** for Square Attack to ensure iteration counts are directly comparable across configurations.
+
 ## 3. Experimental Results
 
 We evaluated the framework on Square Attack ($L_\infty$) under two distinct loss configurations.
