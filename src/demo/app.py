@@ -194,6 +194,12 @@ def create_confidence_graph(
             if valid_conf and valid_iters:
                 ax.plot(valid_iters[:len(valid_conf)], valid_conf[:len(valid_iters)],
                        'g-', label='Locked Class Confidence', linewidth=2)
+
+            # Vertical line at lock iteration
+            switch_iter = confidence_history.get('switch_iteration')
+            if switch_iter is not None:
+                ax.axvline(x=switch_iter, color='purple', linestyle=':', linewidth=1.5,
+                           label=f'Lock iteration (class {locked_class})')
     elif targeted and 'target_class' in confidence_history and len(confidence_history['target_class']) > 0:
         target_conf = confidence_history['target_class']
         # For targeted mode from the start, align with first N iterations
@@ -305,7 +311,11 @@ def run_attack(
             probs = F.softmax(logits, dim=1)
             original_class = torch.argmax(logits, dim=1).item()
             original_confidence = probs[0][original_class].item()
-        
+            # Highest non-true class confidence (for confusion metrics)
+            probs_excl = probs[0].clone()
+            probs_excl[original_class] = -1.0
+            initial_max_other_confidence = probs_excl.max().item()
+
         original_label = get_imagenet_label(original_class)
         
         # Initialize attack based on method
@@ -354,8 +364,23 @@ def run_attack(
             adv_probs = F.softmax(adv_logits, dim=1)
             adv_class = torch.argmax(adv_logits, dim=1).item()
             adv_confidence = adv_probs[0][adv_class].item()
-        
+            final_true_confidence = adv_probs[0][original_class].item()
+            # Highest non-true class confidence after attack
+            adv_probs_excl = adv_probs[0].clone()
+            adv_probs_excl[original_class] = -1.0
+            final_max_other_class = torch.argmax(adv_probs_excl).item()
+            final_max_other_confidence = adv_probs_excl[final_max_other_class].item()
+
         adv_label = get_imagenet_label(adv_class)
+        final_max_other_label = get_imagenet_label(final_max_other_class)
+
+        # Confidence & confusion metrics
+        loss_of_confidence = original_confidence - final_true_confidence
+        # Confusion: 1 when true_conf <= max_other (model is wrong or tied),
+        # decreases as true class pulls ahead.  Capped at 1.0.
+        initial_confusion = 1.0 - max(original_confidence - initial_max_other_confidence, 0.0)
+        final_confusion = 1.0 - max(final_true_confidence - final_max_other_confidence, 0.0)
+        gain_of_confusion = final_confusion - initial_confusion
 
         # Check if attack was successful
         if targeted and target_class is not None:
@@ -395,11 +420,21 @@ def run_attack(
         l2 = total_perturbation.norm(2).item()
         mean_l1 = total_perturbation.abs().mean().item()
 
-        # Create result message
+        # Create result message sections
         perturbation_section = f"""**Perturbation Metrics:**
 - L∞: {linf:.4f}
 - L2: {l2:.4f}
 - Mean L1: {mean_l1:.6f}"""
+
+        confidence_section = f"""**Confidence Metrics:**
+- True class: {original_confidence:.2%} → {final_true_confidence:.2%}
+- Loss of Confidence: {loss_of_confidence:+.2%}
+- Top adversarial class: {final_max_other_class} ({final_max_other_label}) — {final_max_other_confidence:.2%}
+
+**Confusion Metrics:**
+- Initial Confusion: {initial_confusion:.2%}
+- Final Confusion: {final_confusion:.2%}
+- Gain of Confusion: {gain_of_confusion:+.2%}"""
 
         if targeted and target_class is not None:
             result_text = f"""**Attack Mode:** Targeted
@@ -416,6 +451,8 @@ def run_attack(
 - Confidence: {adv_confidence:.2%}
 
 **Budget:** {budget_display}
+
+{confidence_section}
 
 {perturbation_section}
 
@@ -439,6 +476,8 @@ def run_attack(
 
 **Budget:** {budget_display}
 
+{confidence_section}
+
 {perturbation_section}
 
 **Attack Status:** {'✓ Successful' if is_successful else '✗ Failed'}
@@ -455,6 +494,8 @@ def run_attack(
 - Confidence: {adv_confidence:.2%}
 
 **Budget:** {budget_display}
+
+{confidence_section}
 
 {perturbation_section}
 
@@ -538,7 +579,7 @@ def create_demo_interface():
                     choices=["Standard", "Robust (RobustBench)"],
                     value="Standard",
                     label="Model Source",
-                    info="Standard: torchvision models. Robust: adversarially-trained (RobustBench ImageNet Linf)."
+                    info="Standard: torchvision models. Robust: adversarially-trained (RobustBench ImageNet L∞)."
                 )
 
                 model_dropdown = gr.Dropdown(
