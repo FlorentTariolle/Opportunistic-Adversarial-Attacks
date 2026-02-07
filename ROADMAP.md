@@ -11,5 +11,5 @@
 *Goal: Verify effectiveness against models with smoothed decision boundaries.*
 
 - [x] **RobustBench Integration:** Add support for loading robustly trained models (e.g., adversarial training).
-- [ ] **Stress Testing:** Run Opportunistic attacks against hardened targets.
+- [x] **Stress Testing:** Run Opportunistic attacks against hardened targets.
 - [ ] **Analysis:** Determine if the "Path of Least Resistance" strategy remains effective in robust latent spaces where margins are maximized.
