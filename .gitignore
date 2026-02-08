@@ -2,4 +2,3 @@ __pycache__/
 .claude/
 /models/
 CLAUDE.md
-*.csv
