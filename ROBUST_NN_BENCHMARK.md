@@ -20,12 +20,18 @@ Two adversarially-trained ImageNet classifiers from RobustBench (Salman et al., 
 
 | Model | Architecture | Adversarial Training | Clean Acc. | Robust Acc. (L-inf 4/255) |
 |-------|-------------|---------------------|------------|--------------------------|
-| Salman2020Do_R18 | ResNet-18 | Free adversarial training | 52.5% | 25.3% |
-| Salman2020Do_R50 | ResNet-50 | Free adversarial training | 56.3% | 27.5% |
+| Salman2020Do_R18 | ResNet-18 | PGD adversarial training | 52.5% | 25.3% |
+| Salman2020Do_R50 | ResNet-50 | PGD adversarial training | 56.3% | 27.5% |
 
 ### Images
 
 Same four images: `corgi.jpg`, `porsche.jpg`, `dumbbell.jpg`, `hammer.jpg`. Unlike the standard benchmark, **no all-fail filtering is applied** — failed runs carry meaningful progress metrics (margin, confusion gain) that are central to the analysis. This yields **144 runs** (48 per mode).
+
+### Epsilon and Budget
+
+We use **epsilon = 8/255**, consistent with the standard benchmark. While the RobustBench ImageNet L-inf leaderboard evaluates at 4/255, we retain 8/255 to enable direct comparison across our standard and robust benchmarks under identical perturbation budgets. Note that these models were adversarially trained at epsilon = 4/255 (Madry et al., 2018), so our attack budget exceeds the training radius.
+
+The **query budget of 10,000** matches the standard benchmark and the original SimBA and Square Attack papers' default for standard models. This is likely insufficient for robust models — the Square Attack paper recommends 20,000 queries with random restarts for robust evaluation (Andriushchenko et al., 2020). Our budget is constrained by single-GPU compute. The low success rates reported below should be interpreted with this limitation in mind: a larger query budget would likely improve absolute success rates for all modes, though the *relative* comparison between modes (which is our focus) should be less affected.
 
 ### Key Difference from Standard Benchmark
 
@@ -70,7 +76,7 @@ Since most attacks fail, we compare mean final margin across all runs (lower = b
 
 ### SimBA: Mode-Invariant on Robust Models
 
-SimBA's margin is virtually identical across all three modes for both models. On R18, margin hovers around 0.33–0.35; on R50, around 0.57. The targeting mode simply does not matter — SimBA's pixel-level perturbations lack the power to exploit directional guidance against adversarially-trained models. This stands in stark contrast to standard networks where SimBA saw 14.3% iteration savings with OT.
+SimBA's margin is virtually identical across all three modes for both models. On R18, margin hovers around 0.33–0.35; on R50, around 0.57. The targeting mode simply does not matter — SimBA's coordinate-wise perturbations lack the power to exploit directional guidance against adversarially-trained models. This is consistent with recent findings that *all* query-based black-box attacks struggle against even simple adversarially-trained models, achieving < 4% ASR in systematic evaluations (Djilani et al., 2024). This stands in stark contrast to standard networks where SimBA saw 14.3% iteration savings with OT.
 
 ### Square Attack: Targeting Helps on R18, Hurts on R50
 
@@ -99,7 +105,7 @@ On standard networks, lock-match rates were 78–84% (dashed reference line). On
 
 ### 4.2 Semantically Plausible Decoys
 
-The locked classes are not random — they are semantically related neighbors that appear stable in early exploration. We compare them to the **peak adversarial class** (the non-true class reaching highest confidence during the untargeted attack), which is the class oracle targeting aims at:
+The locked classes are not random — they are semantically related neighbors that appear stable in early exploration. This is consistent with Ozbulak et al. (2021), who found that 71% of adversarial misclassifications on ImageNet land in semantically similar classes within the WordNet hierarchy. We compare them to the **peak adversarial class** (the non-true class reaching highest confidence during the untargeted attack), which is the class oracle targeting aims at:
 
 | Image | True Class | OT Locks Onto | Peak Adversarial Class |
 |-------|-----------|---------------|----------------------|
@@ -155,7 +161,7 @@ Square Attack locks later (94–248 iterations), giving the confidence landscape
 
 ### OT's Effectiveness Depends on Landscape Geometry
 
-On standard networks, the confidence landscape is peaked and adversarial basins are deep. The first class to stabilize during exploration is overwhelmingly the "right" one (78–84% match rate). On robust networks, adversarial training flattens the landscape, creating multiple shallow basins of similar early stability. The stability heuristic cannot distinguish deep basins (viable targets) from shallow ones (decoys).
+On standard networks, the loss landscape is peaked and adversarial basins are deep. The first class to stabilize during exploration is overwhelmingly the "right" one (78–84% match rate). On robust networks, adversarial training smooths the input loss landscape (Tsipras et al., 2019) and reduces prediction overconfidence (Grabinski et al., 2022), creating an environment where multiple competing classes have similar early stability. Schwinn et al. (2023) independently found that "previous attacks under-explore the perturbation space during optimization, which leads to unsuccessful attacks for samples where the initial gradient direction is not a good approximation of the final adversarial perturbation direction" — essentially the same phenomenon our decoy hypothesis describes. The stability heuristic cannot distinguish deep basins (viable targets) from shallow ones (decoys).
 
 ### Potential Mitigations
 
@@ -196,6 +202,20 @@ With 12 runs per (model, method, mode) cell and only 2 robust models, we are hig
 | Lock-Match Rate | `fig_lock_match` | Lock-match rate collapse vs. standard benchmark (~80% reference) |
 
 All figures in `results/figures/robust/` as PNG (300 dpi) and PDF.
+
+---
+
+## 9. References
+
+- Andriushchenko, M., Croce, F., Flammarion, N., & Hein, M. (2020). *Square Attack: a query-efficient black-box adversarial attack via random search.* ECCV 2020.
+- Grabinski, J., et al. (2022). *Robust Models are less Over-Confident.* NeurIPS 2022.
+- Guo, C., Gardner, J., You, Y., Wilson, A. G., & Weinberger, K. (2019). *Simple Black-box Adversarial Attacks.* ICML 2019.
+- Madry, A., Makelov, A., Schmidt, L., Tsipras, D., & Vladu, A. (2018). *Towards Deep Learning Models Resistant to Adversarial Attacks.* ICLR 2018.
+- Ozbulak, U., Pintor, M., Van Messem, A., & De Neve, W. (2021). *Evaluating Adversarial Attacks on ImageNet: A Reality Check on Misclassification Classes.* NeurIPS 2021 Workshop.
+- Djilani, M., Ghamizi, S., & Cordy, M. (2024). *RobustBlack: Challenging Black-Box Adversarial Attacks on State-of-the-Art Defenses.* arXiv preprint arXiv:2412.20987.
+- Salman, H., Ilyas, A., Engstrom, L., Kapoor, A., & Madry, A. (2020). *Do Adversarially Robust ImageNet Models Transfer Better?* NeurIPS 2020.
+- Schwinn, L., et al. (2023). *Exploring Misclassifications of Robust Neural Networks to Enhance Adversarial Attacks.* Applied Intelligence, 53, 19843–19859.
+- Tsipras, D., Santurkar, S., Engstrom, L., Turner, A., & Madry, A. (2019). *Robustness May Be at Odds with Accuracy.* ICLR 2019.
 
 ---
 
