@@ -16,7 +16,8 @@ SimBA operates by iteratively adding or subtracting a vector from a predefined o
 ### Budgets & Constraints
 * **Query Budget ($Q_{max}$):**
     * Untargeted: **10,000 queries** (standard for ImageNet/CIFAR).
-    * Targeted: **30,000 queries**.
+    * Targeted: **30,000 queries** (paper recommendation).
+    * **Our benchmark:** Uses a **uniform 10,000 query budget** across all modes (untargeted, targeted-oracle, opportunistic) for fair iteration-count comparison. See `STANDARD_NN_BENCHMARK.md` for results.
 * **Perturbation Budget:**
     * Controlled by the step size $\epsilon$ (default **0.03** in our $L_\infty$ implementation) and the number of iterations. Note: the original paper uses an $L_2$ setting ($\epsilon = 0.2$, norm bounded by $\sqrt{T} \cdot \epsilon$ where $T$ is the number of successful steps), which does not apply to our $L_\infty$ demo.
 

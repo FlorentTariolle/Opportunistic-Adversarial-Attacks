@@ -68,3 +68,18 @@ graph TD
 
 3.  **Access the interface**
     Open [http://127.0.0.1:7860](http://127.0.0.1:7860) in your browser.
+
+---
+
+## Benchmark Results
+
+See [`STANDARD_NN_BENCHMARK.md`](STANDARD_NN_BENCHMARK.md) for the full analysis with figures. Key findings on standard (non-robust) ImageNet classifiers:
+
+* **48% fewer queries** for Square Attack (CE loss) with opportunistic targeting vs. untargeted baseline, and **14% fewer** for SimBA — while matching 100% oracle-targeted success rates.
+* **Benefits scale with model depth:** ResNet-50 sees the largest gains (up to 64% for Square Attack), supporting a depth-dependent drift hypothesis.
+* **OT rescues failures:** SimBA's untargeted success rate jumps from 88% to 100% with opportunistic targeting, converting budget-exceeded runs into successes.
+
+To regenerate figures from benchmark CSVs:
+```bash
+python analyze_benchmark.py
+```

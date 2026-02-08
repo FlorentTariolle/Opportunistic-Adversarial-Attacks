@@ -33,15 +33,13 @@ We evaluated the framework on Square Attack ($L_\infty$) under two distinct loss
 * **Loss Function:** $L = -\log P(y_{true} | x)$ (Standard cross-entropy — solely targets the ground truth probability, with no margin or competitor term).
 * **Observation:** Without the guidance of the Margin term, the standard attack efficiency degrades significantly due to drift. The Opportunistic framework successfully corrected this behavior.
 
-**Query Budget Comparison:**
-
-*Results pending — see `results/benchmark_standard_summary.csv` after running `python benchmark.py`.*
+**Query Budget Comparison** (standard models, ε = 8/255, budget = 10K, CE loss — see [`STANDARD_NN_BENCHMARK.md`](STANDARD_NN_BENCHMARK.md) for full analysis):
 
 | Mode | Mean Iterations | Efficiency vs Oracle | Notes |
 | :--- | :--- | :--- | :--- |
-| **Baseline (Untargeted)** | *TBD* | *TBD* | Expected: high drift, inefficient random walk. |
-| **Oracle (Targeted)** | *TBD* | 100% (ref.) | Targeted attack on the optimal class (known a priori). |
-| **Opportunistic (Ours)** | *TBD* | *TBD* | Expected: near-optimal convergence. |
+| **Baseline (Untargeted)** | 865 | — | High drift, inefficient random walk. |
+| **Oracle (Targeted)** | 430 | 100% (ref.) | Targeted attack on the optimal class (known a priori). |
+| **Opportunistic (Ours)** | 447 | ~48% savings vs untargeted | Near-optimal convergence; within 4% of oracle. |
 
 ## 4. Conclusion & Impact
 
