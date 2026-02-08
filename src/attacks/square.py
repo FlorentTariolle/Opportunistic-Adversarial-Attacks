@@ -108,6 +108,7 @@ class _OpportunisticSquare(torchattacks.Square):
                 'iterations': [],
                 'original_class': [],
                 'max_other_class': [],
+                'max_other_class_id': [],
                 'target_class': [],
                 'switch_iteration': None,
                 'top_classes': [],
@@ -131,9 +132,11 @@ class _OpportunisticSquare(torchattacks.Square):
                 probs_excl = probs[0].clone()
                 probs_excl[y_true] = -1.0
                 max_other_conf = probs_excl.max().item()
+                max_other_class_id = probs_excl.argmax().item()
                 confidence_history['iterations'].append(iteration)
                 confidence_history['original_class'].append(original_conf)
                 confidence_history['max_other_class'].append(max_other_conf)
+                confidence_history['max_other_class_id'].append(max_other_class_id)
                 if is_targeted and locked_target is not None:
                     confidence_history['target_class'].append(
                         probs[0][locked_target].item()

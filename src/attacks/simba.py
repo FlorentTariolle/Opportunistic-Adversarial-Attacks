@@ -159,6 +159,7 @@ class SimBA(BaseAttack):
             'iterations': [],
             'original_class': [],
             'max_other_class': [],
+            'max_other_class_id': [],
             'target_class': [],
             'switch_iteration': None,  # Iteration when opportunistic mode switched to targeted
             'top_classes': [],  # List of dicts {class_id: confidence} for top 10 classes (opportunistic only)
@@ -182,9 +183,11 @@ class SimBA(BaseAttack):
                 probs_excluding_original = probs[0].clone()
                 probs_excluding_original[y_true] = -1.0  # Set to -1 to exclude
                 max_other_conf = probs_excluding_original.max().item()
+                max_other_class_id = probs_excluding_original.argmax().item()
                 confidence_history['iterations'].append(0)
                 confidence_history['original_class'].append(original_conf)
                 confidence_history['max_other_class'].append(max_other_conf)
+                confidence_history['max_other_class_id'].append(max_other_class_id)
                 if targeted and target_class is not None:
                     confidence_history['target_class'].append(probs[0][target_class].item())
                 # Track top 10 classes for opportunistic mode (before locking)
@@ -239,9 +242,11 @@ class SimBA(BaseAttack):
                         probs_excluding_original = probs[0].clone()
                         probs_excluding_original[y_true] = -1.0
                         max_other_conf = probs_excluding_original.max().item()
+                        max_other_class_id = probs_excluding_original.argmax().item()
                         confidence_history['iterations'].append(iteration + 1)
                         confidence_history['original_class'].append(original_conf)
                         confidence_history['max_other_class'].append(max_other_conf)
+                        confidence_history['max_other_class_id'].append(max_other_class_id)
                         if targeted and target_class is not None:
                             confidence_history['target_class'].append(probs[0][target_class].item())
                         # Track top 10 classes for opportunistic mode (before locking)
@@ -292,15 +297,18 @@ class SimBA(BaseAttack):
                     probs_excluding_original = probs_candidate[0].clone()
                     probs_excluding_original[y_true] = -1.0
                     max_other_conf = probs_excluding_original.max().item()
+                    max_other_class_id = probs_excluding_original.argmax().item()
                     if confidence_history['iterations'] and confidence_history['iterations'][-1] == iteration + 1:
                         confidence_history['original_class'][-1] = candidate_conf
                         confidence_history['max_other_class'][-1] = max_other_conf
+                        confidence_history['max_other_class_id'][-1] = max_other_class_id
                         if targeted:
                             confidence_history['target_class'][-1] = candidate_target_conf
                     else:
                         confidence_history['iterations'].append(iteration + 1)
                         confidence_history['original_class'].append(candidate_conf)
                         confidence_history['max_other_class'].append(max_other_conf)
+                        confidence_history['max_other_class_id'].append(max_other_class_id)
                         if targeted:
                             confidence_history['target_class'].append(candidate_target_conf)
                 # Opportunistic stability check
@@ -387,15 +395,18 @@ class SimBA(BaseAttack):
                     probs_excluding_original = probs_candidate[0].clone()
                     probs_excluding_original[y_true] = -1.0
                     max_other_conf = probs_excluding_original.max().item()
+                    max_other_class_id = probs_excluding_original.argmax().item()
                     if confidence_history['iterations'] and confidence_history['iterations'][-1] == iteration + 1:
                         confidence_history['original_class'][-1] = candidate_conf
                         confidence_history['max_other_class'][-1] = max_other_conf
+                        confidence_history['max_other_class_id'][-1] = max_other_class_id
                         if targeted:
                             confidence_history['target_class'][-1] = candidate_target_conf
                     else:
                         confidence_history['iterations'].append(iteration + 1)
                         confidence_history['original_class'].append(candidate_conf)
                         confidence_history['max_other_class'].append(max_other_conf)
+                        confidence_history['max_other_class_id'].append(max_other_class_id)
                         if targeted:
                             confidence_history['target_class'].append(candidate_target_conf)
                 # Opportunistic stability check
@@ -460,9 +471,11 @@ class SimBA(BaseAttack):
                 probs_excl = probs[0].clone()
                 probs_excl[y_true] = -1.0
                 final_max_other_conf = probs_excl.max().item()
+                final_max_other_class_id = probs_excl.argmax().item()
             confidence_history['iterations'].append(num_done)
             confidence_history['original_class'].append(final_original_conf)
             confidence_history['max_other_class'].append(final_max_other_conf)
+            confidence_history['max_other_class_id'].append(final_max_other_class_id)
         if track_confidence:
             return x_adv, confidence_history
         return x_adv
