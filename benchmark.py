@@ -46,6 +46,7 @@ CSV_COLUMNS = [
     'true_conf_initial', 'max_other_conf_initial', 'max_other_conf_final',
     'confusion_initial', 'confusion_final', 'confusion_gain',
     'peak_adv_conf', 'peak_adv_class', 'peak_adv_iter',
+    'stability_threshold',
     'timestamp',
 ]
 
@@ -325,6 +326,7 @@ def run_targeted_oracle_pipeline(model, method, eps, seed, x, y_true, device,
             'peak_adv_conf': round(result['peak_adv_conf'], 6) if result['peak_adv_conf'] is not None else '',
             'peak_adv_class': result['peak_adv_class'] if result['peak_adv_class'] is not None else '',
             'peak_adv_iter': result['peak_adv_iter'] if result['peak_adv_iter'] is not None else '',
+            'stability_threshold': stability_threshold,
             'timestamp': datetime.now().isoformat(),
         }
 
