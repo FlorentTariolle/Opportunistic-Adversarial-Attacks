@@ -1,0 +1,916 @@
+"""
+Benchmark Data Analysis & Publication Figures
+
+Generates all figures and summary statistics from benchmark results:
+  - Diagnostic figures (bar charts, scatter, heatmap, lock-match)
+  - Publication figures (CDF, violin, lock-in dynamics)
+
+Usage:
+    python analyze_benchmark.py                          # All figures (CSV-only)
+    python analyze_benchmark.py --skip-replay            # Skip lock-in replay (no GPU)
+    python analyze_benchmark.py --show                   # Interactive display
+    python analyze_benchmark.py --csv results/benchmark_standard.csv
+"""
+
+import argparse
+import os
+from pathlib import Path
+
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+
+# ===========================================================================
+# Style configuration
+# ===========================================================================
+def _setup_style():
+    """Configure matplotlib for publication-quality output."""
+    try:
+        plt.style.use("seaborn-v0_8-whitegrid")
+    except OSError:
+        plt.style.use("seaborn-whitegrid")
+
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "DejaVu Serif"],
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.labelsize": 12,
+        "legend.fontsize": 9,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "figure.constrained_layout.use": True,
+    })
+
+    # Try LaTeX rendering; fall back silently
+    try:
+        plt.rcParams["text.usetex"] = True
+        fig_test, ax_test = plt.subplots(figsize=(1, 1))
+        ax_test.set_title("$x$")
+        fig_test.canvas.draw()
+        plt.close(fig_test)
+    except Exception:
+        plt.rcParams["text.usetex"] = False
+
+
+# ===========================================================================
+# Color palettes
+# ===========================================================================
+
+# 3-mode palette (diagnostic figures: untargeted / targeted-oracle / opportunistic)
+MODE_COLORS = {
+    "untargeted": "#4878CF",     # blue
+    "targeted": "#E8873A",       # orange
+    "opportunistic": "#6BA353",  # green
+}
+MODE_ORDER = ["untargeted", "targeted", "opportunistic"]
+MODE_LABELS = {
+    "untargeted": "Untargeted",
+    "targeted": "Targeted (oracle)",
+    "opportunistic": "Opportunistic",
+}
+
+# 2-mode palette (publication figures: untargeted vs opportunistic)
+COLOR_UNTARGETED = "#4878CF"      # blue
+COLOR_OPPORTUNISTIC = "#D64541"   # red
+LINESTYLE_SIMBA = "-"             # solid
+LINESTYLE_SQUARE = "--"           # dashed
+
+METHOD_MARKERS = {"SimBA": "o", "SquareAttack": "s"}
+MODEL_ORDER = ["resnet18", "resnet50", "vgg16", "alexnet"]
+
+
+# ===========================================================================
+# Data loading
+# ===========================================================================
+def load_data(csv_path: str) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    df["iterations"] = pd.to_numeric(df["iterations"])
+    df["success"] = df["success"].map(
+        {"True": True, "False": False, True: True, False: False}
+    )
+    df["switch_iteration"] = pd.to_numeric(df["switch_iteration"], errors="coerce")
+    df["locked_class"] = pd.to_numeric(df["locked_class"], errors="coerce")
+    df["oracle_target"] = pd.to_numeric(df["oracle_target"], errors="coerce")
+    df["adversarial_class"] = pd.to_numeric(df["adversarial_class"], errors="coerce")
+    df["mode"] = pd.Categorical(df["mode"], categories=MODE_ORDER, ordered=True)
+
+    # Drop (model, method, image) combos where no mode succeeded at all —
+    # these are "too hard" attacks without saved confidence data to analyse.
+    key = ["model", "method", "image"]
+    any_success = df.groupby(key, observed=True)["success"].transform("any")
+    n_before = len(df)
+    df = df[any_success].reset_index(drop=True)
+    n_dropped = n_before - len(df)
+    if n_dropped:
+        print(f"  Filtered {n_dropped} rows from all-fail (model, method, image) combos")
+
+    return df
+
+
+# ===========================================================================
+# Helpers
+# ===========================================================================
+def _savefig(fig, outdir: str, name: str):
+    fig.savefig(os.path.join(outdir, f"{name}.png"), bbox_inches="tight")
+    fig.savefig(os.path.join(outdir, f"{name}.pdf"), bbox_inches="tight")
+    print(f"  Saved {name}.png / .pdf")
+
+
+def _ci95(series):
+    """Return 95% CI half-width."""
+    n = len(series)
+    if n < 2:
+        return 0.0
+    return stats.t.ppf(0.975, n - 1) * series.std(ddof=1) / np.sqrt(n)
+
+
+def _pub_label(method: str, mode: str) -> str:
+    """Legend label for publication 2-mode figures."""
+    short = "SimBA" if method == "SimBA" else "Square"
+    tag = "Untargeted" if mode == "untargeted" else "Opportunistic"
+    return f"{short} — {tag}"
+
+
+def _pub_color(mode: str) -> str:
+    return COLOR_UNTARGETED if mode == "untargeted" else COLOR_OPPORTUNISTIC
+
+
+def _pub_linestyle(method: str) -> str:
+    return LINESTYLE_SIMBA if method == "SimBA" else LINESTYLE_SQUARE
+
+
+# ===========================================================================
+# Diagnostic Figures (3-mode: untargeted / targeted-oracle / opportunistic)
+# ===========================================================================
+
+def fig_headline_bars(df: pd.DataFrame, outdir: str):
+    """Headline bar chart: mean iterations by mode."""
+    ok = df[df["success"]]
+    agg = ok.groupby(["method", "mode"], observed=True)["iterations"].agg(["mean", "count", "std"])
+    agg["ci"] = ok.groupby(["method", "mode"], observed=True)["iterations"].apply(_ci95)
+    agg = agg.reset_index()
+
+    methods = ["SimBA", "SquareAttack"]
+    x = np.arange(len(methods))
+    width = 0.22
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for i, mode in enumerate(MODE_ORDER):
+        subset = agg[agg["mode"] == mode].set_index("method").reindex(methods)
+        ax.bar(
+            x + (i - 1) * width,
+            subset["mean"],
+            width,
+            yerr=subset["ci"],
+            capsize=4,
+            color=MODE_COLORS[mode],
+            label=MODE_LABELS[mode],
+            edgecolor="white",
+            linewidth=0.5,
+        )
+
+    # Annotate % savings (opportunistic vs untargeted)
+    for j, method in enumerate(methods):
+        u = agg[(agg["method"] == method) & (agg["mode"] == "untargeted")]["mean"].values
+        o = agg[(agg["method"] == method) & (agg["mode"] == "opportunistic")]["mean"].values
+        if len(u) and len(o) and u[0] > 0:
+            savings = (u[0] - o[0]) / u[0] * 100
+            y_pos = max(u[0], o[0]) + agg[(agg["method"] == method)]["ci"].max() + 80
+            ax.annotate(
+                f"\u2193 {savings:.1f}%",
+                xy=(x[j] + width, y_pos),
+                ha="center",
+                fontsize=11,
+                fontweight="bold",
+                color=MODE_COLORS["opportunistic"],
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(methods)
+    ax.set_ylabel("Mean Iterations to Success")
+    ax.set_title("Mean Iterations by Attack Mode (All Models, Successful Runs)")
+    ax.legend()
+    ax.set_ylim(bottom=0)
+    _savefig(fig, outdir, "fig_headline_bars")
+    return fig
+
+
+def fig_per_model(df: pd.DataFrame, outdir: str):
+    """Per-model breakdown: mean iterations by mode."""
+    ok = df[df["success"]]
+    models = [m for m in MODEL_ORDER if m in ok["model"].unique()]
+    methods = ["SimBA", "SquareAttack"]
+
+    with plt.rc_context({"figure.constrained_layout.use": False}):
+        fig, axes = plt.subplots(
+            1, len(models), figsize=(4 * len(models), 5), sharey=False,
+        )
+    fig.subplots_adjust(bottom=0.15, top=0.88, wspace=0.3)
+    if len(models) == 1:
+        axes = [axes]
+
+    for ax, model in zip(axes, models):
+        sub = ok[ok["model"] == model]
+        agg = sub.groupby(["method", "mode"], observed=True)["iterations"].agg(["mean"]).reset_index()
+        agg["ci"] = sub.groupby(["method", "mode"], observed=True)["iterations"].apply(_ci95).values
+
+        x = np.arange(len(methods))
+        width = 0.22
+        for i, mode in enumerate(MODE_ORDER):
+            m_data = agg[agg["mode"] == mode].set_index("method").reindex(methods)
+            ax.bar(
+                x + (i - 1) * width,
+                m_data["mean"],
+                width,
+                yerr=m_data["ci"],
+                capsize=3,
+                color=MODE_COLORS[mode],
+                edgecolor="white",
+                linewidth=0.5,
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels(methods, fontsize=9)
+        ax.set_title(model, fontweight="bold")
+        ax.set_ylim(bottom=0)
+        if ax is axes[0]:
+            ax.set_ylabel("Mean Iterations")
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=MODE_COLORS[m]) for m in MODE_ORDER
+    ]
+    fig.legend(
+        handles,
+        [MODE_LABELS[m] for m in MODE_ORDER],
+        loc="lower center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 0.02),
+    )
+    fig.suptitle("Iterations by Model and Mode", fontsize=14)
+    _savefig(fig, outdir, "fig_per_model")
+    return fig
+
+
+def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str):
+    """Scatter: untargeted difficulty vs opportunistic savings."""
+    ok = df[df["success"]].copy()
+    key_cols = ["model", "method", "epsilon", "seed", "image"]
+
+    unt = ok[ok["mode"] == "untargeted"][key_cols + ["iterations"]].rename(
+        columns={"iterations": "iter_unt"}
+    )
+    opp = ok[ok["mode"] == "opportunistic"][key_cols + ["iterations"]].rename(
+        columns={"iterations": "iter_opp"}
+    )
+
+    merged = unt.merge(opp, on=key_cols, how="inner")
+    merged["savings_pct"] = (
+        (merged["iter_unt"] - merged["iter_opp"]) / merged["iter_unt"] * 100
+    )
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for method in ["SimBA", "SquareAttack"]:
+        for model in MODEL_ORDER:
+            sub = merged[(merged["method"] == method) & (merged["model"] == model)]
+            if sub.empty:
+                continue
+            ax.scatter(
+                sub["iter_unt"],
+                sub["savings_pct"],
+                marker=METHOD_MARKERS[method],
+                c=("#4878CF" if method == "SimBA" else "#D65F5F"),
+                alpha=0.65,
+                s=50,
+                edgecolors="white",
+                linewidths=0.5,
+                label=f"{method} / {model}",
+            )
+
+    if len(merged) >= 3:
+        slope, intercept, r, p, se = stats.linregress(
+            merged["iter_unt"], merged["savings_pct"]
+        )
+        xs = np.linspace(merged["iter_unt"].min(), merged["iter_unt"].max(), 100)
+        ax.plot(xs, slope * xs + intercept, "--", color="gray", linewidth=1.5,
+                label=f"Trend (r={r:.2f}, p={p:.3f})")
+
+    ax.axhline(0, color="black", linewidth=0.5, linestyle=":")
+    ax.set_xlabel("Untargeted Iterations (difficulty)")
+    ax.set_ylabel("Opportunistic Savings (%)")
+    ax.set_title("Does Opportunistic Targeting Help More on Harder Images?")
+    ax.legend(fontsize=8, ncol=2, loc="best")
+    _savefig(fig, outdir, "fig_difficulty_vs_savings")
+    return fig
+
+
+def fig_lock_match(df: pd.DataFrame, outdir: str):
+    """Lock-match analysis: does opportunistic lock the same class as untargeted?"""
+    ok = df[df["success"]].copy()
+    key_cols = ["model", "method", "epsilon", "seed", "image"]
+
+    unt = ok[ok["mode"] == "untargeted"][key_cols + ["adversarial_class"]].rename(
+        columns={"adversarial_class": "unt_class"}
+    )
+    opp = ok[ok["mode"] == "opportunistic"][key_cols + ["locked_class"]].copy()
+    opp = opp[opp["locked_class"].notna()]
+
+    merged = unt.merge(opp, on=key_cols, how="inner")
+    merged["match"] = merged["unt_class"] == merged["locked_class"]
+
+    match_rate = (
+        merged.groupby(["model", "method"])["match"]
+        .mean()
+        .reset_index()
+        .rename(columns={"match": "match_rate"})
+    )
+
+    models = [m for m in MODEL_ORDER if m in match_rate["model"].unique()]
+    methods = ["SimBA", "SquareAttack"]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    x = np.arange(len(models))
+    width = 0.3
+    for i, method in enumerate(methods):
+        sub = match_rate[match_rate["method"] == method].set_index("model").reindex(models)
+        color = "#4878CF" if method == "SimBA" else "#D65F5F"
+        bars = ax.bar(
+            x + (i - 0.5) * width,
+            sub["match_rate"] * 100,
+            width,
+            color=color,
+            edgecolor="white",
+            linewidth=0.5,
+            label=method,
+        )
+        for bar in bars:
+            h = bar.get_height()
+            if not np.isnan(h):
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    h + 1.5,
+                    f"{h:.0f}%",
+                    ha="center",
+                    fontsize=9,
+                )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(models)
+    ax.set_ylabel("Lock-Match Rate (%)")
+    ax.set_title("Does Opportunistic Lock onto the Same Class as Untargeted?")
+    ax.set_ylim(0, 115)
+    ax.legend()
+
+    n_opp_success = len(df[(df["mode"] == "opportunistic") & df["success"]])
+    n_opp_total = len(df[df["mode"] == "opportunistic"])
+    ax.text(
+        0.5, -0.15,
+        f"Opportunistic success rate: {n_opp_success}/{n_opp_total} "
+        f"({n_opp_success / n_opp_total * 100:.0f}%) — succeeds even when locking a different class",
+        ha="center", transform=ax.transAxes, fontsize=9, style="italic",
+    )
+    _savefig(fig, outdir, "fig_lock_match")
+    return fig
+
+
+def fig_resnet50_heatmap(df: pd.DataFrame, outdir: str):
+    """Per-image heatmap for resnet50.
+
+    Includes all runs (successful and failed) so that failed attacks show
+    their iteration count (typically max_iterations) rather than n/a.
+    """
+    sub_all = df[df["model"] == "resnet50"]
+    if sub_all.empty:
+        print("  Skipping fig_resnet50_heatmap: no resnet50 runs")
+        return None
+
+    methods = [m for m in ["SimBA", "SquareAttack"] if m in sub_all["method"].unique()]
+    fig, axes = plt.subplots(1, len(methods), figsize=(5 * len(methods), 3.5))
+    if len(methods) == 1:
+        axes = [axes]
+
+    for ax, method in zip(axes, methods):
+        sub = sub_all[sub_all["method"] == method]
+        pivot = sub.pivot_table(
+            index="image", columns="mode", values="iterations", aggfunc="mean",
+            observed=True,
+        )
+        pivot = pivot[[m for m in MODE_ORDER if m in pivot.columns]]
+
+        im = ax.imshow(pivot.values, aspect="auto", cmap="YlOrRd")
+        ax.set_xticks(range(len(pivot.columns)))
+        ax.set_xticklabels([MODE_LABELS.get(c, c) for c in pivot.columns], fontsize=9)
+        ax.set_yticks(range(len(pivot.index)))
+        ax.set_yticklabels(pivot.index, fontsize=9)
+        ax.set_title(f"{method}", fontweight="bold")
+
+        valid_vals = pivot.values[~np.isnan(pivot.values)]
+        threshold = valid_vals.mean() if len(valid_vals) else 0
+        for r in range(pivot.shape[0]):
+            for c in range(pivot.shape[1]):
+                val = pivot.values[r, c]
+                if np.isnan(val):
+                    text = "n/a"
+                    text_color = "gray"
+                else:
+                    text = f"{val:.0f}"
+                    text_color = "white" if val > threshold else "black"
+                ax.text(c, r, text, ha="center", va="center", fontsize=9, color=text_color)
+
+        fig.colorbar(im, ax=ax, shrink=0.8, label="Mean Iterations")
+
+    fig.suptitle("resnet50 Case Study: Mean Iterations by Image and Mode", fontsize=13)
+    _savefig(fig, outdir, "fig_resnet50_heatmap")
+    return fig
+
+
+# ===========================================================================
+# Publication Figures (2-mode: untargeted vs opportunistic)
+# ===========================================================================
+
+def fig_cdf(df: pd.DataFrame, outdir: str):
+    """CDF: cumulative attack success rate vs query budget."""
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+
+    sub = df[df["mode"].isin(["untargeted", "opportunistic"])].copy()
+
+    q_min, q_max = 10, 10_000
+    thresholds = np.unique(np.geomspace(q_min, q_max, 200).astype(int))
+
+    medians = {}
+
+    for method in ["SimBA", "SquareAttack"]:
+        for mode in ["untargeted", "opportunistic"]:
+            group = sub[(sub["method"] == method) & (sub["mode"] == mode)]
+            n_total = len(group)
+            if n_total == 0:
+                continue
+
+            asr = []
+            for q in thresholds:
+                n_success = ((group["success"]) & (group["iterations"] <= q)).sum()
+                asr.append(n_success / n_total)
+
+            asr = np.array(asr)
+            ax.plot(
+                thresholds, asr,
+                color=_pub_color(mode),
+                linestyle=_pub_linestyle(method),
+                linewidth=2,
+                label=_pub_label(method, mode),
+            )
+
+            above_half = np.where(asr >= 0.5)[0]
+            if len(above_half):
+                medians[(method, mode)] = thresholds[above_half[0]]
+
+    # Annotate median vertical lines & speedup
+    anno_idx = 0
+    y_positions = [0.52, 0.40]
+    for method in ["SimBA", "SquareAttack"]:
+        m_unt = medians.get((method, "untargeted"))
+        m_opp = medians.get((method, "opportunistic"))
+        if m_unt is not None:
+            ax.axvline(m_unt, color=COLOR_UNTARGETED, linestyle=":", alpha=0.5, linewidth=1)
+        if m_opp is not None:
+            ax.axvline(m_opp, color=COLOR_OPPORTUNISTIC, linestyle=":", alpha=0.5, linewidth=1)
+        if m_unt and m_opp and m_opp > 0:
+            speedup = m_unt / m_opp
+            if speedup > 1.05:
+                short = "SimBA" if method == "SimBA" else "Square"
+                y_pos = y_positions[anno_idx]
+                mid_x = np.sqrt(m_unt * m_opp)
+                ax.annotate(
+                    f"{short}: {speedup:.1f}x",
+                    xy=(m_opp, y_pos),
+                    xytext=(mid_x, y_pos + 0.08),
+                    fontsize=9, fontweight="bold",
+                    color=COLOR_OPPORTUNISTIC,
+                    arrowprops=dict(arrowstyle="->", color=COLOR_OPPORTUNISTIC, lw=0.8),
+                )
+                anno_idx += 1
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Query Budget")
+    ax.set_ylabel("Attack Success Rate")
+    ax.set_title("Cumulative Success Rate vs. Query Budget")
+    ax.set_ylim(-0.02, 1.05)
+    ax.set_xlim(q_min, q_max)
+    ax.legend(loc="lower right")
+    _savefig(fig, outdir, "fig_cdf")
+    return fig
+
+
+def fig_violin(df: pd.DataFrame, outdir: str):
+    """Split violin plot of query counts for successful attacks."""
+    import seaborn as sns
+
+    ok = df[
+        (df["success"]) & (df["mode"].isin(["untargeted", "opportunistic"]))
+    ].copy()
+    ok["Mode"] = ok["mode"].map({
+        "untargeted": "Untargeted",
+        "opportunistic": "Opportunistic",
+    })
+    ok["Method"] = ok["method"]
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+
+    sns.violinplot(
+        data=ok,
+        x="Method",
+        y="iterations",
+        hue="Mode",
+        split=True,
+        inner="quart",
+        palette={"Untargeted": COLOR_UNTARGETED, "Opportunistic": COLOR_OPPORTUNISTIC},
+        ax=ax,
+        linewidth=1,
+        cut=0,
+    )
+
+    sns.stripplot(
+        data=ok,
+        x="Method",
+        y="iterations",
+        hue="Mode",
+        dodge=True,
+        palette={"Untargeted": COLOR_UNTARGETED, "Opportunistic": COLOR_OPPORTUNISTIC},
+        ax=ax,
+        size=3,
+        alpha=0.3,
+        jitter=True,
+        legend=False,
+    )
+
+    ax.set_yscale("log")
+    ax.set_ylabel("Queries to Success (log scale)")
+    ax.set_xlabel("")
+    ax.set_title("Query Distribution: Untargeted vs. Opportunistic")
+
+    for method in ["SimBA", "SquareAttack"]:
+        for mode_val in ["untargeted", "opportunistic"]:
+            vals = ok[(ok["Method"] == method) & (ok["mode"] == mode_val)]["iterations"]
+            if len(vals):
+                med = vals.median()
+                x_pos = 0 if method == "SimBA" else 1
+                offset = -0.22 if mode_val == "untargeted" else 0.22
+                ax.text(
+                    x_pos + offset, med,
+                    f"  {med:.0f}",
+                    ha="center", va="center", fontsize=8, fontweight="bold",
+                    color=_pub_color(mode_val),
+                    bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.8),
+                )
+
+    ax.legend(title="", loc="upper right")
+    _savefig(fig, outdir, "fig_violin")
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Lock-in dynamics (live attack replay)
+# ---------------------------------------------------------------------------
+def _replay_attack(method_name, model, x, y_true_tensor, seed, opportunistic, device):
+    """Run a single attack and return confidence_history."""
+    import torch
+    from src.attacks.simba import SimBA
+    from src.attacks.square import SquareAttack
+
+    eps = 8 / 255
+    max_iter = 10_000
+    stability_threshold = 5  # standard models
+
+    if method_name == "SimBA":
+        attack = SimBA(
+            model=model, epsilon=eps, max_iterations=max_iter,
+            device=device, use_dct=True, pixel_range=(0.0, 1.0),
+        )
+    else:
+        attack = SquareAttack(
+            model=model, epsilon=eps, max_iterations=max_iter,
+            device=device, loss="ce", normalize=False, seed=seed,
+        )
+
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+
+    attack.generate(
+        x, y_true_tensor,
+        track_confidence=True,
+        targeted=False,
+        early_stop=True,
+        opportunistic=opportunistic,
+        stability_threshold=stability_threshold,
+    )
+    return attack.confidence_history
+
+
+def fig_lockin(outdir: str, device_str: str = "cuda"):
+    """Lock-in dynamics case study: side-by-side SquareAttack & SimBA."""
+    import torch
+    from benchmark import load_benchmark_model, load_benchmark_image, get_true_label
+
+    device = torch.device(device_str if torch.cuda.is_available() else "cpu")
+
+    model_name = "resnet50"
+    print(f"  Loading model for replay ({model_name}, standard) ...")
+    model = load_benchmark_model(model_name, "standard", device)
+
+    cases = [
+        {
+            "method": "SquareAttack",
+            "image": Path("data/hammer.jpg"),
+            "seed": 0,
+            "title": f"Square Attack — {model_name} — hammer.jpg",
+        },
+        {
+            "method": "SimBA",
+            "image": Path("data/corgi.jpg"),
+            "seed": 0,
+            "title": f"SimBA — {model_name} — corgi.jpg",
+        },
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+
+    for ax, case in zip(axes, cases):
+        print(f"  Replaying {case['method']} on {case['image'].name} (seed={case['seed']}) ...")
+        x = load_benchmark_image(case["image"], device)
+        y_true = get_true_label(model, x)
+        y_true_tensor = torch.tensor([y_true], device=device)
+
+        hist_unt = _replay_attack(
+            case["method"], model, x, y_true_tensor, case["seed"],
+            opportunistic=False, device=device,
+        )
+        hist_opp = _replay_attack(
+            case["method"], model, x, y_true_tensor, case["seed"],
+            opportunistic=True, device=device,
+        )
+
+        # Untargeted traces (faded)
+        ax.plot(
+            hist_unt["iterations"], hist_unt["original_class"],
+            color=COLOR_UNTARGETED, alpha=0.3, linewidth=1.5, linestyle="-",
+            label="Original class (untargeted)",
+        )
+        ax.plot(
+            hist_unt["iterations"], hist_unt["max_other_class"],
+            color=COLOR_OPPORTUNISTIC, alpha=0.3, linewidth=1.5, linestyle="--",
+            label="Max other class (untargeted)",
+        )
+
+        # Opportunistic traces (vivid)
+        ax.plot(
+            hist_opp["iterations"], hist_opp["original_class"],
+            color=COLOR_UNTARGETED, alpha=1.0, linewidth=2, linestyle="-",
+            label="Original class (opportunistic)",
+        )
+        ax.plot(
+            hist_opp["iterations"], hist_opp["max_other_class"],
+            color=COLOR_OPPORTUNISTIC, alpha=1.0, linewidth=2, linestyle="--",
+            label="Max other class (opportunistic)",
+        )
+
+        # Locked class confidence trace
+        locked_class = hist_opp.get("locked_class")
+        switch_iter = hist_opp.get("switch_iteration")
+        if locked_class is not None:
+            top_classes = hist_opp.get("top_classes", [])
+            target_conf = hist_opp.get("target_class", [])
+            locked_conf = []
+            for top_dict in top_classes:
+                locked_conf.append(top_dict.get(locked_class))
+            locked_conf.extend(target_conf)
+
+            iters_all = hist_opp["iterations"]
+            valid = [(it, c) for it, c in zip(iters_all, locked_conf) if c is not None]
+            if valid:
+                v_iters, v_conf = zip(*valid)
+                ax.plot(
+                    v_iters, v_conf,
+                    color="#2ECC71", linewidth=2, linestyle="-",
+                    label=f"Locked class {locked_class}",
+                )
+
+        # Vertical lock-in line
+        if switch_iter is not None:
+            ax.axvline(x=switch_iter, color="#2ECC71", linestyle=":", linewidth=1.5)
+            ax.annotate(
+                f"Lock-in @ {switch_iter}",
+                xy=(switch_iter, 0.92),
+                xytext=(switch_iter + 200, 0.95),
+                fontsize=8, color="#2ECC71",
+                arrowprops=dict(arrowstyle="->", color="#2ECC71", lw=0.8),
+            )
+
+        # Mark where each attack ended
+        unt_end = hist_unt["iterations"][-1] if hist_unt["iterations"] else None
+        opp_end = hist_opp["iterations"][-1] if hist_opp["iterations"] else None
+        if unt_end:
+            ax.axvline(unt_end, color=COLOR_UNTARGETED, linestyle="--", alpha=0.4, linewidth=1)
+            ax.text(unt_end, 0.02, f"Unt: {unt_end}", fontsize=7, color=COLOR_UNTARGETED,
+                    ha="right", rotation=90, va="bottom")
+        if opp_end:
+            ax.axvline(opp_end, color=COLOR_OPPORTUNISTIC, linestyle="--", alpha=0.4, linewidth=1)
+            ax.text(opp_end, 0.02, f"Opp: {opp_end}", fontsize=7, color=COLOR_OPPORTUNISTIC,
+                    ha="left", rotation=90, va="bottom")
+
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Confidence")
+        ax.set_title(case["title"])
+        ax.set_ylim(0, 1.02)
+        ax.grid(True, alpha=0.3)
+
+    # Shared legend below
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.08))
+
+    fig.suptitle("Lock-in Dynamics: Untargeted (faded) vs. Opportunistic (vivid)", fontsize=13)
+    _savefig(fig, outdir, "fig_lockin")
+    return fig
+
+
+# ===========================================================================
+# Summary Table
+# ===========================================================================
+def print_summary(df: pd.DataFrame):
+    ok = df[df["success"]]
+    print("\n" + "=" * 80)
+    print("BENCHMARK SUMMARY — Standard Networks")
+    print("=" * 80)
+
+    # --- Success rates ---
+    print("\n--- Success Rates ---")
+    sr = df.groupby(["method", "mode"], observed=True)["success"].mean().reset_index()
+    sr["success"] = (sr["success"] * 100).round(1).astype(str) + "%"
+    sr_pivot = sr.pivot(index="method", columns="mode", values="success")
+    sr_pivot = sr_pivot[[m for m in MODE_ORDER if m in sr_pivot.columns]]
+    print(sr_pivot.to_string())
+
+    # --- Iteration statistics ---
+    print("\n--- Iteration Statistics (successful runs only) ---")
+    stats_df = (
+        ok.groupby(["method", "mode"], observed=True)["iterations"]
+        .agg(["mean", "median", "std", "count"])
+        .round(1)
+        .reset_index()
+    )
+    stats_df.columns = ["Method", "Mode", "Mean", "Median", "Std", "N"]
+    print(stats_df.to_string(index=False))
+
+    # --- Per-model mean iterations ---
+    print("\n--- Per-Model Mean Iterations (successful runs only) ---")
+    pm = (
+        ok.groupby(["model", "method", "mode"], observed=True)["iterations"]
+        .mean()
+        .round(0)
+        .reset_index()
+    )
+    pm_pivot = pm.pivot_table(
+        index=["model", "method"], columns="mode", values="iterations",
+        observed=True,
+    )
+    pm_pivot = pm_pivot[[m for m in MODE_ORDER if m in pm_pivot.columns]]
+    print(pm_pivot.to_string())
+
+    # --- Savings vs untargeted ---
+    print("\n--- Savings: Opportunistic vs Untargeted ---")
+    key_cols = ["model", "method", "epsilon", "seed", "image"]
+    unt = ok[ok["mode"] == "untargeted"][key_cols + ["iterations"]].rename(
+        columns={"iterations": "iter_unt"}
+    )
+    opp = ok[ok["mode"] == "opportunistic"][key_cols + ["iterations"]].rename(
+        columns={"iterations": "iter_opp"}
+    )
+    tgt = ok[ok["mode"] == "targeted"][key_cols + ["iterations"]].rename(
+        columns={"iterations": "iter_tgt"}
+    )
+    merged = unt.merge(opp, on=key_cols, how="inner").merge(tgt, on=key_cols, how="inner")
+    merged["sav_vs_unt"] = (
+        (merged["iter_unt"] - merged["iter_opp"]) / merged["iter_unt"] * 100
+    )
+    merged["overhead_vs_tgt"] = (
+        (merged["iter_opp"] - merged["iter_tgt"]) / merged["iter_tgt"] * 100
+    )
+
+    savings = merged.groupby(["method"]).agg(
+        mean_savings_vs_unt=("sav_vs_unt", "mean"),
+        median_savings_vs_unt=("sav_vs_unt", "median"),
+        mean_overhead_vs_tgt=("overhead_vs_tgt", "mean"),
+        n_triplets=("sav_vs_unt", "count"),
+    ).round(1)
+    print(savings.to_string())
+
+    print("\n--- Per-Model Savings vs Untargeted (%) ---")
+    pm_sav = merged.groupby(["model", "method"])["sav_vs_unt"].agg(
+        ["mean", "median"]
+    ).round(1)
+    print(pm_sav.to_string())
+
+    # --- Switch iteration stats ---
+    print("\n--- Opportunistic Switch Statistics ---")
+    opp_all = df[df["mode"] == "opportunistic"].copy()
+    switched = opp_all[opp_all["switch_iteration"].notna()]
+    not_switched = opp_all[opp_all["switch_iteration"].isna()]
+    print(f"  Total opportunistic runs: {len(opp_all)}")
+    print(f"  Switched: {len(switched)} ({len(switched)/len(opp_all)*100:.1f}%)")
+    print(f"  Did not switch: {len(not_switched)} ({len(not_switched)/len(opp_all)*100:.1f}%)")
+
+    if len(switched):
+        sw = switched.groupby("method")["switch_iteration"].agg(
+            ["mean", "median", "min", "max"]
+        ).round(1)
+        print(sw.to_string())
+
+    # --- Lock-match rate ---
+    print("\n--- Lock-Match Rate (opportunistic locked_class == untargeted adversarial_class) ---")
+    unt2 = ok[ok["mode"] == "untargeted"][key_cols + ["adversarial_class"]].rename(
+        columns={"adversarial_class": "unt_class"}
+    )
+    opp2 = ok[ok["mode"] == "opportunistic"][key_cols + ["locked_class"]]
+    opp2 = opp2[opp2["locked_class"].notna()]
+    lm = unt2.merge(opp2, on=key_cols, how="inner")
+    lm["match"] = lm["unt_class"] == lm["locked_class"]
+    lm_rate = lm.groupby(["method"])["match"].mean() * 100
+    print(lm_rate.round(1).to_string())
+
+    print("\n" + "=" * 80)
+
+
+# ===========================================================================
+# Main
+# ===========================================================================
+def main():
+    parser = argparse.ArgumentParser(
+        description="Analyze benchmark results and generate all figures."
+    )
+    parser.add_argument(
+        "--csv", default="results/benchmark_standard.csv",
+        help="Path to benchmark CSV (default: results/benchmark_standard.csv)",
+    )
+    parser.add_argument(
+        "--outdir", default="results/figures",
+        help="Output directory for figures (default: results/figures)",
+    )
+    parser.add_argument(
+        "--show", action="store_true",
+        help="Display figures interactively",
+    )
+    parser.add_argument(
+        "--skip-replay", action="store_true",
+        help="Skip lock-in dynamics figure (no model loading required)",
+    )
+    args = parser.parse_args()
+
+    if not args.show:
+        matplotlib.use("Agg")
+
+    _setup_style()
+    os.makedirs(args.outdir, exist_ok=True)
+
+    print(f"Loading data from {args.csv} ...")
+    df = load_data(args.csv)
+    print(f"  {len(df)} rows, {df['model'].nunique()} models, "
+          f"{df['method'].nunique()} methods, {df['mode'].nunique()} modes")
+
+    print("\n=== Diagnostic Figures ===")
+    print("\n--- Headline Bars ---")
+    fig_headline_bars(df, args.outdir)
+    print("\n--- Per-Model Breakdown ---")
+    fig_per_model(df, args.outdir)
+    print("\n--- Difficulty vs Savings ---")
+    fig_difficulty_vs_savings(df, args.outdir)
+    print("\n--- Lock-Match Analysis ---")
+    fig_lock_match(df, args.outdir)
+    print("\n--- resnet50 Heatmap ---")
+    fig_resnet50_heatmap(df, args.outdir)
+
+    print("\n=== Publication Figures ===")
+    print("\n--- CDF ---")
+    fig_cdf(df, args.outdir)
+    print("\n--- Violin ---")
+    fig_violin(df, args.outdir)
+
+    if not args.skip_replay:
+        print("\n--- Lock-in Dynamics (live replay) ---")
+        fig_lockin(args.outdir)
+    else:
+        print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
+
+    print_summary(df)
+
+    if args.show:
+        plt.show()
+
+    print(f"\nAll figures saved to {args.outdir}/")
+
+
+if __name__ == "__main__":
+    main()
