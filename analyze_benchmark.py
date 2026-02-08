@@ -90,6 +90,7 @@ MODEL_ORDERS = {
     "robust": ["Salman2020Do_R18", "Salman2020Do_R50"],
 }
 STABILITY_THRESHOLDS = {"standard": 5, "robust": 10}
+CASE_MODELS = {"standard": "resnet50", "robust": "Salman2020Do_R18"}
 
 
 # ===========================================================================
@@ -463,67 +464,11 @@ def fig_model_heatmap(df: pd.DataFrame, outdir: str, case_model: str):
 # Progress Metric Figures (robust benchmarks — uses all runs)
 # ===========================================================================
 
-def fig_confusion_gain(df: pd.DataFrame, outdir: str):
-    """Grouped bar chart: mean confusion_gain by method x mode (all runs)."""
-    agg = df.groupby(["method", "mode"], observed=True)["confusion_gain"].agg(
-        ["mean", "count"]
-    ).reset_index()
-    agg["ci"] = df.groupby(["method", "mode"], observed=True)["confusion_gain"].apply(_ci95).values
-
-    methods = ["SimBA", "SquareAttack"]
-    x = np.arange(len(methods))
-    width = 0.22
-
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    for i, mode in enumerate(MODE_ORDER):
-        subset = agg[agg["mode"] == mode].set_index("method").reindex(methods)
-        ax.bar(
-            x + (i - 1) * width,
-            subset["mean"],
-            width,
-            yerr=subset["ci"],
-            capsize=4,
-            color=MODE_COLORS[mode],
-            label=MODE_LABELS[mode],
-            edgecolor="white",
-            linewidth=0.5,
-        )
-
-    # Annotate opportunistic vs untargeted improvement
-    for j, method in enumerate(methods):
-        u = agg[(agg["method"] == method) & (agg["mode"] == "untargeted")]["mean"].values
-        o = agg[(agg["method"] == method) & (agg["mode"] == "opportunistic")]["mean"].values
-        if len(u) and len(o) and u[0] > 0:
-            improvement = (o[0] - u[0]) / u[0] * 100
-            y_pos = max(u[0], o[0]) + agg[(agg["method"] == method)]["ci"].max() + 0.005
-            arrow = "\u2191" if improvement > 0 else "\u2193"
-            ax.annotate(
-                f"{arrow} {abs(improvement):.1f}%",
-                xy=(x[j] + width, y_pos),
-                ha="center",
-                fontsize=11,
-                fontweight="bold",
-                color=MODE_COLORS["opportunistic"],
-            )
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(methods)
-    ax.set_ylabel("Mean Confusion Gain")
-    ax.set_title("Confusion Gain by Attack Mode (All Runs)")
-    ax.legend()
-    ax.set_ylim(bottom=0)
-    _savefig(fig, outdir, "fig_confusion_gain")
-    return fig
-
-
-def fig_confidence_drop(df: pd.DataFrame, outdir: str, model_order: list[str]):
-    """Per-model subplots: mean confidence drop by method x mode (all runs)."""
-    df_prog = df.copy()
-    df_prog["conf_drop"] = df_prog["true_conf_initial"] - df_prog["true_conf_final"]
-
-    models = [m for m in model_order if m in df_prog["model"].unique()]
+def fig_confusion_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
+    """Per-model breakdown: mean confusion_gain by method x mode (all runs)."""
+    models = [m for m in model_order if m in df["model"].unique()]
     if not models:
-        print("  Skipping fig_confidence_drop: no matching models")
+        print("  Skipping fig_confusion_per_model: no matching models")
         return None
     methods = ["SimBA", "SquareAttack"]
 
@@ -536,9 +481,9 @@ def fig_confidence_drop(df: pd.DataFrame, outdir: str, model_order: list[str]):
         axes = [axes]
 
     for ax, model in zip(axes, models):
-        sub = df_prog[df_prog["model"] == model]
-        agg = sub.groupby(["method", "mode"], observed=True)["conf_drop"].agg(["mean"]).reset_index()
-        agg["ci"] = sub.groupby(["method", "mode"], observed=True)["conf_drop"].apply(_ci95).values
+        sub = df[df["model"] == model]
+        agg = sub.groupby(["method", "mode"], observed=True)["confusion_gain"].agg(["mean"]).reset_index()
+        agg["ci"] = sub.groupby(["method", "mode"], observed=True)["confusion_gain"].apply(_ci95).values
 
         x = np.arange(len(methods))
         width = 0.22
@@ -559,7 +504,7 @@ def fig_confidence_drop(df: pd.DataFrame, outdir: str, model_order: list[str]):
         ax.set_title(model, fontweight="bold")
         ax.set_ylim(bottom=0)
         if ax is axes[0]:
-            ax.set_ylabel("Mean Confidence Drop")
+            ax.set_ylabel("Mean Confusion Gain")
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, color=MODE_COLORS[m]) for m in MODE_ORDER
@@ -571,8 +516,8 @@ def fig_confidence_drop(df: pd.DataFrame, outdir: str, model_order: list[str]):
         ncol=3,
         bbox_to_anchor=(0.5, 0.02),
     )
-    fig.suptitle("True-Class Confidence Drop by Model and Mode (All Runs)", fontsize=14)
-    _savefig(fig, outdir, "fig_confidence_drop")
+    fig.suptitle("Confusion Gain by Model and Mode (All Runs)", fontsize=14)
+    _savefig(fig, outdir, "fig_confusion_per_model")
     return fig
 
 
@@ -814,28 +759,22 @@ def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda"):
 
     device = torch.device(device_str if torch.cuda.is_available() else "cpu")
 
-    model_order = MODEL_ORDERS[source]
-    model_name = model_order[0]
+    model_name = CASE_MODELS[source]
     print(f"  Loading model for replay ({model_name}, {source}) ...")
     model = load_benchmark_model(model_name, source, device)
-
-    # Pick case images — use first two benchmark images
-    image_files = sorted(Path("data").glob("*.jpg"))
-    img1 = image_files[0] if len(image_files) > 0 else Path("data/corgi.jpg")
-    img2 = image_files[1] if len(image_files) > 1 else Path("data/hammer.jpg")
 
     cases = [
         {
             "method": "SquareAttack",
-            "image": img2,
+            "image": Path("data/hammer.jpg"),
             "seed": 0,
-            "title": f"Square Attack — {model_name} — {img2.name}",
+            "title": f"Square Attack — {model_name} — hammer.jpg",
         },
         {
             "method": "SimBA",
-            "image": img1,
+            "image": Path("data/corgi.jpg"),
             "seed": 0,
-            "title": f"SimBA — {model_name} — {img1.name}",
+            "title": f"SimBA — {model_name} — corgi.jpg",
         },
     ]
 
@@ -1061,14 +1000,6 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
         ).round(4)
         print(cg.to_string())
 
-        print("\n  Mean Confidence Drop (true_conf_initial - true_conf_final) by Method x Mode:")
-        df_prog = df.copy()
-        df_prog["conf_drop"] = df_prog["true_conf_initial"] - df_prog["true_conf_final"]
-        cd = df_prog.groupby(["method", "mode"], observed=True)["conf_drop"].agg(
-            ["mean", "std", "count"]
-        ).round(4)
-        print(cd.to_string())
-
         print("\n  Mean Peak Adversarial Confidence by Method x Mode:")
         pa = df.groupby(["method", "mode"], observed=True)["peak_adv_conf"].agg(
             ["mean", "std", "count"]
@@ -1126,46 +1057,45 @@ def main():
     print(f"  {len(df)} rows, {df['model'].nunique()} models, "
           f"{df['method'].nunique()} methods, {df['mode'].nunique()} modes")
 
-    case_model = model_order[0]
+    case_model = CASE_MODELS[source]
     has_progress = "confusion_gain" in df.columns
 
     print(f"\n  Source: {source}, models: {model_order}")
-    if has_progress:
-        print("  Progress metric columns detected — will generate additional figures")
 
-    print("\n=== Diagnostic Figures ===")
-    print("\n--- Headline Bars ---")
-    fig_headline_bars(df, args.outdir)
-    print("\n--- Per-Model Breakdown ---")
-    fig_per_model(df, args.outdir, model_order)
-    print("\n--- Difficulty vs Savings ---")
-    fig_difficulty_vs_savings(df, args.outdir, model_order)
-    print("\n--- Lock-Match Analysis ---")
-    fig_lock_match(df, args.outdir, model_order)
-    print(f"\n--- {case_model} Heatmap ---")
-    fig_model_heatmap(df, args.outdir, case_model)
-
-    # Progress metric figures (only when robust benchmark columns exist)
     if has_progress:
+        # Robust mode: iterations are uninformative (attacks rarely succeed),
+        # so only generate progress-metric figures (confusion gain, peak adv).
+        print("  Robust data detected — skipping iteration-based figures")
         print("\n=== Progress Metric Figures ===")
-        print("\n--- Confusion Gain ---")
-        fig_confusion_gain(df, args.outdir)
-        print("\n--- Confidence Drop ---")
-        fig_confidence_drop(df, args.outdir, model_order)
+        print("\n--- Confusion Gain Per Model ---")
+        fig_confusion_per_model(df, args.outdir, model_order)
         print("\n--- Peak Adversarial Confidence ---")
         fig_peak_adv(df, args.outdir)
-
-    print("\n=== Publication Figures ===")
-    print("\n--- CDF ---")
-    fig_cdf(df, args.outdir)
-    print("\n--- Violin ---")
-    fig_violin(df, args.outdir)
-
-    if not args.skip_replay:
-        print("\n--- Lock-in Dynamics (live replay) ---")
-        fig_lockin(args.outdir, source=source)
     else:
-        print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
+        # Standard mode: full iteration-based diagnostic + publication figures.
+        print("\n=== Diagnostic Figures ===")
+        print("\n--- Headline Bars ---")
+        fig_headline_bars(df, args.outdir)
+        print("\n--- Per-Model Breakdown ---")
+        fig_per_model(df, args.outdir, model_order)
+        print("\n--- Difficulty vs Savings ---")
+        fig_difficulty_vs_savings(df, args.outdir, model_order)
+        print("\n--- Lock-Match Analysis ---")
+        fig_lock_match(df, args.outdir, model_order)
+        print(f"\n--- {case_model} Heatmap ---")
+        fig_model_heatmap(df, args.outdir, case_model)
+
+        print("\n=== Publication Figures ===")
+        print("\n--- CDF ---")
+        fig_cdf(df, args.outdir)
+        print("\n--- Violin ---")
+        fig_violin(df, args.outdir)
+
+        if not args.skip_replay:
+            print("\n--- Lock-in Dynamics (live replay) ---")
+            fig_lockin(args.outdir, source=source)
+        else:
+            print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
 
     print_summary(df, source=source)
 
