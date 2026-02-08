@@ -4,12 +4,15 @@ Benchmark Data Analysis & Publication Figures
 Generates all figures and summary statistics from benchmark results:
   - Diagnostic figures (bar charts, scatter, heatmap, lock-match)
   - Publication figures (CDF, violin, lock-in dynamics)
+  - Progress metric figures (confusion gain, confidence drop, peak adversarial)
+    — generated automatically when robust benchmark columns are present
 
 Usage:
-    python analyze_benchmark.py                          # All figures (CSV-only)
+    python analyze_benchmark.py                          # Standard models (default)
+    python analyze_benchmark.py --source robust          # Robust models
     python analyze_benchmark.py --skip-replay            # Skip lock-in replay (no GPU)
     python analyze_benchmark.py --show                   # Interactive display
-    python analyze_benchmark.py --csv results/benchmark_standard.csv
+    python analyze_benchmark.py --csv results/custom.csv --source robust
 """
 
 import argparse
@@ -82,7 +85,11 @@ LINESTYLE_SIMBA = "-"             # solid
 LINESTYLE_SQUARE = "--"           # dashed
 
 METHOD_MARKERS = {"SimBA": "o", "SquareAttack": "s"}
-MODEL_ORDER = ["resnet18", "resnet50", "vgg16", "alexnet"]
+MODEL_ORDERS = {
+    "standard": ["resnet18", "resnet50", "vgg16", "alexnet"],
+    "robust": ["Salman2020Do_R18", "Salman2020Do_R50"],
+}
+STABILITY_THRESHOLDS = {"standard": 5, "robust": 10}
 
 
 # ===========================================================================
@@ -102,13 +109,19 @@ def load_data(csv_path: str) -> pd.DataFrame:
 
     # Drop (model, method, image) combos where no mode succeeded at all —
     # these are "too hard" attacks without saved confidence data to analyse.
-    key = ["model", "method", "image"]
-    any_success = df.groupby(key, observed=True)["success"].transform("any")
-    n_before = len(df)
-    df = df[any_success].reset_index(drop=True)
-    n_dropped = n_before - len(df)
-    if n_dropped:
-        print(f"  Filtered {n_dropped} rows from all-fail (model, method, image) combos")
+    # Skip this filter when progress metric columns exist (robust benchmarks),
+    # because failed runs still have meaningful confusion/peak metrics.
+    has_progress = "confusion_gain" in df.columns
+    if not has_progress:
+        key = ["model", "method", "image"]
+        any_success = df.groupby(key, observed=True)["success"].transform("any")
+        n_before = len(df)
+        df = df[any_success].reset_index(drop=True)
+        n_dropped = n_before - len(df)
+        if n_dropped:
+            print(f"  Filtered {n_dropped} rows from all-fail (model, method, image) combos")
+    else:
+        print("  Progress metric columns detected — keeping all rows (including all-fail combos)")
 
     return df
 
@@ -152,6 +165,9 @@ def _pub_linestyle(method: str) -> str:
 def fig_headline_bars(df: pd.DataFrame, outdir: str):
     """Headline bar chart: mean iterations by mode."""
     ok = df[df["success"]]
+    if ok.empty:
+        print("  Skipping fig_headline_bars: no successful runs")
+        return None
     agg = ok.groupby(["method", "mode"], observed=True)["iterations"].agg(["mean", "count", "std"])
     agg["ci"] = ok.groupby(["method", "mode"], observed=True)["iterations"].apply(_ci95)
     agg = agg.reset_index()
@@ -201,10 +217,13 @@ def fig_headline_bars(df: pd.DataFrame, outdir: str):
     return fig
 
 
-def fig_per_model(df: pd.DataFrame, outdir: str):
+def fig_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
     """Per-model breakdown: mean iterations by mode."""
     ok = df[df["success"]]
-    models = [m for m in MODEL_ORDER if m in ok["model"].unique()]
+    if ok.empty:
+        print("  Skipping fig_per_model: no successful runs")
+        return None
+    models = [m for m in model_order if m in ok["model"].unique()]
     methods = ["SimBA", "SquareAttack"]
 
     with plt.rc_context({"figure.constrained_layout.use": False}):
@@ -256,9 +275,12 @@ def fig_per_model(df: pd.DataFrame, outdir: str):
     return fig
 
 
-def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str):
+def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str, model_order: list[str]):
     """Scatter: untargeted difficulty vs opportunistic savings."""
     ok = df[df["success"]].copy()
+    if ok.empty:
+        print("  Skipping fig_difficulty_vs_savings: no successful runs")
+        return None
     key_cols = ["model", "method", "epsilon", "seed", "image"]
 
     unt = ok[ok["mode"] == "untargeted"][key_cols + ["iterations"]].rename(
@@ -269,13 +291,16 @@ def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str):
     )
 
     merged = unt.merge(opp, on=key_cols, how="inner")
+    if merged.empty:
+        print("  Skipping fig_difficulty_vs_savings: no paired successful runs")
+        return None
     merged["savings_pct"] = (
         (merged["iter_unt"] - merged["iter_opp"]) / merged["iter_unt"] * 100
     )
 
     fig, ax = plt.subplots(figsize=(7, 5))
     for method in ["SimBA", "SquareAttack"]:
-        for model in MODEL_ORDER:
+        for model in model_order:
             sub = merged[(merged["method"] == method) & (merged["model"] == model)]
             if sub.empty:
                 continue
@@ -308,9 +333,12 @@ def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str):
     return fig
 
 
-def fig_lock_match(df: pd.DataFrame, outdir: str):
+def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
     """Lock-match analysis: does opportunistic lock the same class as untargeted?"""
     ok = df[df["success"]].copy()
+    if ok.empty:
+        print("  Skipping fig_lock_match: no successful runs")
+        return None
     key_cols = ["model", "method", "epsilon", "seed", "image"]
 
     unt = ok[ok["mode"] == "untargeted"][key_cols + ["adversarial_class"]].rename(
@@ -320,6 +348,9 @@ def fig_lock_match(df: pd.DataFrame, outdir: str):
     opp = opp[opp["locked_class"].notna()]
 
     merged = unt.merge(opp, on=key_cols, how="inner")
+    if merged.empty:
+        print("  Skipping fig_lock_match: no paired runs with lock data")
+        return None
     merged["match"] = merged["unt_class"] == merged["locked_class"]
 
     match_rate = (
@@ -329,7 +360,7 @@ def fig_lock_match(df: pd.DataFrame, outdir: str):
         .rename(columns={"match": "match_rate"})
     )
 
-    models = [m for m in MODEL_ORDER if m in match_rate["model"].unique()]
+    models = [m for m in model_order if m in match_rate["model"].unique()]
     methods = ["SimBA", "SquareAttack"]
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
@@ -377,15 +408,15 @@ def fig_lock_match(df: pd.DataFrame, outdir: str):
     return fig
 
 
-def fig_resnet50_heatmap(df: pd.DataFrame, outdir: str):
-    """Per-image heatmap for resnet50.
+def fig_model_heatmap(df: pd.DataFrame, outdir: str, case_model: str):
+    """Per-image heatmap for a given model.
 
     Includes all runs (successful and failed) so that failed attacks show
     their iteration count (typically max_iterations) rather than n/a.
     """
-    sub_all = df[df["model"] == "resnet50"]
+    sub_all = df[df["model"] == case_model]
     if sub_all.empty:
-        print("  Skipping fig_resnet50_heatmap: no resnet50 runs")
+        print(f"  Skipping fig_model_heatmap: no {case_model} runs")
         return None
 
     methods = [m for m in ["SimBA", "SquareAttack"] if m in sub_all["method"].unique()]
@@ -423,8 +454,169 @@ def fig_resnet50_heatmap(df: pd.DataFrame, outdir: str):
 
         fig.colorbar(im, ax=ax, shrink=0.8, label="Mean Iterations")
 
-    fig.suptitle("resnet50 Case Study: Mean Iterations by Image and Mode", fontsize=13)
-    _savefig(fig, outdir, "fig_resnet50_heatmap")
+    fig.suptitle(f"{case_model} Case Study: Mean Iterations by Image and Mode", fontsize=13)
+    _savefig(fig, outdir, f"fig_{case_model}_heatmap")
+    return fig
+
+
+# ===========================================================================
+# Progress Metric Figures (robust benchmarks — uses all runs)
+# ===========================================================================
+
+def fig_confusion_gain(df: pd.DataFrame, outdir: str):
+    """Grouped bar chart: mean confusion_gain by method x mode (all runs)."""
+    agg = df.groupby(["method", "mode"], observed=True)["confusion_gain"].agg(
+        ["mean", "count"]
+    ).reset_index()
+    agg["ci"] = df.groupby(["method", "mode"], observed=True)["confusion_gain"].apply(_ci95).values
+
+    methods = ["SimBA", "SquareAttack"]
+    x = np.arange(len(methods))
+    width = 0.22
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for i, mode in enumerate(MODE_ORDER):
+        subset = agg[agg["mode"] == mode].set_index("method").reindex(methods)
+        ax.bar(
+            x + (i - 1) * width,
+            subset["mean"],
+            width,
+            yerr=subset["ci"],
+            capsize=4,
+            color=MODE_COLORS[mode],
+            label=MODE_LABELS[mode],
+            edgecolor="white",
+            linewidth=0.5,
+        )
+
+    # Annotate opportunistic vs untargeted improvement
+    for j, method in enumerate(methods):
+        u = agg[(agg["method"] == method) & (agg["mode"] == "untargeted")]["mean"].values
+        o = agg[(agg["method"] == method) & (agg["mode"] == "opportunistic")]["mean"].values
+        if len(u) and len(o) and u[0] > 0:
+            improvement = (o[0] - u[0]) / u[0] * 100
+            y_pos = max(u[0], o[0]) + agg[(agg["method"] == method)]["ci"].max() + 0.005
+            arrow = "\u2191" if improvement > 0 else "\u2193"
+            ax.annotate(
+                f"{arrow} {abs(improvement):.1f}%",
+                xy=(x[j] + width, y_pos),
+                ha="center",
+                fontsize=11,
+                fontweight="bold",
+                color=MODE_COLORS["opportunistic"],
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(methods)
+    ax.set_ylabel("Mean Confusion Gain")
+    ax.set_title("Confusion Gain by Attack Mode (All Runs)")
+    ax.legend()
+    ax.set_ylim(bottom=0)
+    _savefig(fig, outdir, "fig_confusion_gain")
+    return fig
+
+
+def fig_confidence_drop(df: pd.DataFrame, outdir: str, model_order: list[str]):
+    """Per-model subplots: mean confidence drop by method x mode (all runs)."""
+    df_prog = df.copy()
+    df_prog["conf_drop"] = df_prog["true_conf_initial"] - df_prog["true_conf_final"]
+
+    models = [m for m in model_order if m in df_prog["model"].unique()]
+    if not models:
+        print("  Skipping fig_confidence_drop: no matching models")
+        return None
+    methods = ["SimBA", "SquareAttack"]
+
+    with plt.rc_context({"figure.constrained_layout.use": False}):
+        fig, axes = plt.subplots(
+            1, len(models), figsize=(4 * len(models), 5), sharey=False,
+        )
+    fig.subplots_adjust(bottom=0.15, top=0.88, wspace=0.3)
+    if len(models) == 1:
+        axes = [axes]
+
+    for ax, model in zip(axes, models):
+        sub = df_prog[df_prog["model"] == model]
+        agg = sub.groupby(["method", "mode"], observed=True)["conf_drop"].agg(["mean"]).reset_index()
+        agg["ci"] = sub.groupby(["method", "mode"], observed=True)["conf_drop"].apply(_ci95).values
+
+        x = np.arange(len(methods))
+        width = 0.22
+        for i, mode in enumerate(MODE_ORDER):
+            m_data = agg[agg["mode"] == mode].set_index("method").reindex(methods)
+            ax.bar(
+                x + (i - 1) * width,
+                m_data["mean"],
+                width,
+                yerr=m_data["ci"],
+                capsize=3,
+                color=MODE_COLORS[mode],
+                edgecolor="white",
+                linewidth=0.5,
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels(methods, fontsize=9)
+        ax.set_title(model, fontweight="bold")
+        ax.set_ylim(bottom=0)
+        if ax is axes[0]:
+            ax.set_ylabel("Mean Confidence Drop")
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=MODE_COLORS[m]) for m in MODE_ORDER
+    ]
+    fig.legend(
+        handles,
+        [MODE_LABELS[m] for m in MODE_ORDER],
+        loc="lower center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 0.02),
+    )
+    fig.suptitle("True-Class Confidence Drop by Model and Mode (All Runs)", fontsize=14)
+    _savefig(fig, outdir, "fig_confidence_drop")
+    return fig
+
+
+def fig_peak_adv(df: pd.DataFrame, outdir: str):
+    """Box plot with strip overlay: peak_adv_conf by method x mode."""
+    import seaborn as sns
+
+    plot_df = df[["method", "mode", "peak_adv_conf"]].copy()
+    plot_df["Mode"] = plot_df["mode"].map(MODE_LABELS)
+    plot_df["Method"] = plot_df["method"]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    sns.boxplot(
+        data=plot_df,
+        x="Method",
+        y="peak_adv_conf",
+        hue="Mode",
+        palette={MODE_LABELS[m]: MODE_COLORS[m] for m in MODE_ORDER},
+        ax=ax,
+        linewidth=1,
+        fliersize=0,
+    )
+
+    sns.stripplot(
+        data=plot_df,
+        x="Method",
+        y="peak_adv_conf",
+        hue="Mode",
+        dodge=True,
+        palette={MODE_LABELS[m]: MODE_COLORS[m] for m in MODE_ORDER},
+        ax=ax,
+        size=3,
+        alpha=0.3,
+        jitter=True,
+        legend=False,
+    )
+
+    ax.set_ylabel("Peak Adversarial Confidence")
+    ax.set_xlabel("")
+    ax.set_title("Peak Adversarial Confidence Distribution (All Runs)")
+    ax.set_ylim(-0.02, 1.05)
+    ax.legend(title="", loc="lower right")
+    _savefig(fig, outdir, "fig_peak_adv")
     return fig
 
 
@@ -512,6 +704,9 @@ def fig_violin(df: pd.DataFrame, outdir: str):
     ok = df[
         (df["success"]) & (df["mode"].isin(["untargeted", "opportunistic"]))
     ].copy()
+    if ok.empty:
+        print("  Skipping fig_violin: no successful runs")
+        return None
     ok["Mode"] = ok["mode"].map({
         "untargeted": "Untargeted",
         "opportunistic": "Opportunistic",
@@ -575,7 +770,8 @@ def fig_violin(df: pd.DataFrame, outdir: str):
 # ---------------------------------------------------------------------------
 # Lock-in dynamics (live attack replay)
 # ---------------------------------------------------------------------------
-def _replay_attack(method_name, model, x, y_true_tensor, seed, opportunistic, device):
+def _replay_attack(method_name, model, x, y_true_tensor, seed, opportunistic, device,
+                    source="standard"):
     """Run a single attack and return confidence_history."""
     import torch
     from src.attacks.simba import SimBA
@@ -583,7 +779,7 @@ def _replay_attack(method_name, model, x, y_true_tensor, seed, opportunistic, de
 
     eps = 8 / 255
     max_iter = 10_000
-    stability_threshold = 5  # standard models
+    stability_threshold = STABILITY_THRESHOLDS[source]
 
     if method_name == "SimBA":
         attack = SimBA(
@@ -611,29 +807,35 @@ def _replay_attack(method_name, model, x, y_true_tensor, seed, opportunistic, de
     return attack.confidence_history
 
 
-def fig_lockin(outdir: str, device_str: str = "cuda"):
+def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda"):
     """Lock-in dynamics case study: side-by-side SquareAttack & SimBA."""
     import torch
     from benchmark import load_benchmark_model, load_benchmark_image, get_true_label
 
     device = torch.device(device_str if torch.cuda.is_available() else "cpu")
 
-    model_name = "resnet50"
-    print(f"  Loading model for replay ({model_name}, standard) ...")
-    model = load_benchmark_model(model_name, "standard", device)
+    model_order = MODEL_ORDERS[source]
+    model_name = model_order[0]
+    print(f"  Loading model for replay ({model_name}, {source}) ...")
+    model = load_benchmark_model(model_name, source, device)
+
+    # Pick case images — use first two benchmark images
+    image_files = sorted(Path("data").glob("*.jpg"))
+    img1 = image_files[0] if len(image_files) > 0 else Path("data/corgi.jpg")
+    img2 = image_files[1] if len(image_files) > 1 else Path("data/hammer.jpg")
 
     cases = [
         {
             "method": "SquareAttack",
-            "image": Path("data/hammer.jpg"),
+            "image": img2,
             "seed": 0,
-            "title": f"Square Attack — {model_name} — hammer.jpg",
+            "title": f"Square Attack — {model_name} — {img2.name}",
         },
         {
             "method": "SimBA",
-            "image": Path("data/corgi.jpg"),
+            "image": img1,
             "seed": 0,
-            "title": f"SimBA — {model_name} — corgi.jpg",
+            "title": f"SimBA — {model_name} — {img1.name}",
         },
     ]
 
@@ -647,11 +849,11 @@ def fig_lockin(outdir: str, device_str: str = "cuda"):
 
         hist_unt = _replay_attack(
             case["method"], model, x, y_true_tensor, case["seed"],
-            opportunistic=False, device=device,
+            opportunistic=False, device=device, source=source,
         )
         hist_opp = _replay_attack(
             case["method"], model, x, y_true_tensor, case["seed"],
-            opportunistic=True, device=device,
+            opportunistic=True, device=device, source=source,
         )
 
         # Untargeted traces (faded)
@@ -740,10 +942,11 @@ def fig_lockin(outdir: str, device_str: str = "cuda"):
 # ===========================================================================
 # Summary Table
 # ===========================================================================
-def print_summary(df: pd.DataFrame):
+def print_summary(df: pd.DataFrame, source: str = "standard"):
     ok = df[df["success"]]
+    source_label = "Robust Networks" if source == "robust" else "Standard Networks"
     print("\n" + "=" * 80)
-    print("BENCHMARK SUMMARY — Standard Networks")
+    print(f"BENCHMARK SUMMARY — {source_label}")
     print("=" * 80)
 
     # --- Success rates ---
@@ -793,26 +996,29 @@ def print_summary(df: pd.DataFrame):
         columns={"iterations": "iter_tgt"}
     )
     merged = unt.merge(opp, on=key_cols, how="inner").merge(tgt, on=key_cols, how="inner")
-    merged["sav_vs_unt"] = (
-        (merged["iter_unt"] - merged["iter_opp"]) / merged["iter_unt"] * 100
-    )
-    merged["overhead_vs_tgt"] = (
-        (merged["iter_opp"] - merged["iter_tgt"]) / merged["iter_tgt"] * 100
-    )
+    if merged.empty:
+        print("  No paired successful runs across all three modes")
+    else:
+        merged["sav_vs_unt"] = (
+            (merged["iter_unt"] - merged["iter_opp"]) / merged["iter_unt"] * 100
+        )
+        merged["overhead_vs_tgt"] = (
+            (merged["iter_opp"] - merged["iter_tgt"]) / merged["iter_tgt"] * 100
+        )
 
-    savings = merged.groupby(["method"]).agg(
-        mean_savings_vs_unt=("sav_vs_unt", "mean"),
-        median_savings_vs_unt=("sav_vs_unt", "median"),
-        mean_overhead_vs_tgt=("overhead_vs_tgt", "mean"),
-        n_triplets=("sav_vs_unt", "count"),
-    ).round(1)
-    print(savings.to_string())
+        savings = merged.groupby(["method"]).agg(
+            mean_savings_vs_unt=("sav_vs_unt", "mean"),
+            median_savings_vs_unt=("sav_vs_unt", "median"),
+            mean_overhead_vs_tgt=("overhead_vs_tgt", "mean"),
+            n_triplets=("sav_vs_unt", "count"),
+        ).round(1)
+        print(savings.to_string())
 
-    print("\n--- Per-Model Savings vs Untargeted (%) ---")
-    pm_sav = merged.groupby(["model", "method"])["sav_vs_unt"].agg(
-        ["mean", "median"]
-    ).round(1)
-    print(pm_sav.to_string())
+        print("\n--- Per-Model Savings vs Untargeted (%) ---")
+        pm_sav = merged.groupby(["model", "method"])["sav_vs_unt"].agg(
+            ["mean", "median"]
+        ).round(1)
+        print(pm_sav.to_string())
 
     # --- Switch iteration stats ---
     print("\n--- Opportunistic Switch Statistics ---")
@@ -837,9 +1043,37 @@ def print_summary(df: pd.DataFrame):
     opp2 = ok[ok["mode"] == "opportunistic"][key_cols + ["locked_class"]]
     opp2 = opp2[opp2["locked_class"].notna()]
     lm = unt2.merge(opp2, on=key_cols, how="inner")
-    lm["match"] = lm["unt_class"] == lm["locked_class"]
-    lm_rate = lm.groupby(["method"])["match"].mean() * 100
-    print(lm_rate.round(1).to_string())
+    if lm.empty:
+        print("  No paired runs with lock data")
+    else:
+        lm["match"] = lm["unt_class"] == lm["locked_class"]
+        lm_rate = lm.groupby(["method"])["match"].mean() * 100
+        print(lm_rate.round(1).to_string())
+
+    # --- Progress metrics (only when columns exist) ---
+    has_progress = "confusion_gain" in df.columns
+    if has_progress:
+        print("\n--- Progress Metrics (all runs, including failures) ---")
+
+        print("\n  Mean Confusion Gain by Method x Mode:")
+        cg = df.groupby(["method", "mode"], observed=True)["confusion_gain"].agg(
+            ["mean", "std", "count"]
+        ).round(4)
+        print(cg.to_string())
+
+        print("\n  Mean Confidence Drop (true_conf_initial - true_conf_final) by Method x Mode:")
+        df_prog = df.copy()
+        df_prog["conf_drop"] = df_prog["true_conf_initial"] - df_prog["true_conf_final"]
+        cd = df_prog.groupby(["method", "mode"], observed=True)["conf_drop"].agg(
+            ["mean", "std", "count"]
+        ).round(4)
+        print(cd.to_string())
+
+        print("\n  Mean Peak Adversarial Confidence by Method x Mode:")
+        pa = df.groupby(["method", "mode"], observed=True)["peak_adv_conf"].agg(
+            ["mean", "std", "count"]
+        ).round(4)
+        print(pa.to_string())
 
     print("\n" + "=" * 80)
 
@@ -852,12 +1086,16 @@ def main():
         description="Analyze benchmark results and generate all figures."
     )
     parser.add_argument(
-        "--csv", default="results/benchmark_standard.csv",
-        help="Path to benchmark CSV (default: results/benchmark_standard.csv)",
+        "--source", choices=["standard", "robust"], default="standard",
+        help="Model source (default: standard)",
     )
     parser.add_argument(
-        "--outdir", default="results/figures",
-        help="Output directory for figures (default: results/figures)",
+        "--csv", default=None,
+        help="Path to benchmark CSV (default: results/benchmark_{source}.csv)",
+    )
+    parser.add_argument(
+        "--outdir", default=None,
+        help="Output directory for figures (default: results/figures/{source})",
     )
     parser.add_argument(
         "--show", action="store_true",
@@ -868,6 +1106,14 @@ def main():
         help="Skip lock-in dynamics figure (no model loading required)",
     )
     args = parser.parse_args()
+
+    if args.csv is None:
+        args.csv = f"results/benchmark_{args.source}.csv"
+    if args.outdir is None:
+        args.outdir = f"results/figures/{args.source}"
+
+    source = args.source
+    model_order = MODEL_ORDERS[source]
 
     if not args.show:
         matplotlib.use("Agg")
@@ -880,17 +1126,34 @@ def main():
     print(f"  {len(df)} rows, {df['model'].nunique()} models, "
           f"{df['method'].nunique()} methods, {df['mode'].nunique()} modes")
 
+    case_model = model_order[0]
+    has_progress = "confusion_gain" in df.columns
+
+    print(f"\n  Source: {source}, models: {model_order}")
+    if has_progress:
+        print("  Progress metric columns detected — will generate additional figures")
+
     print("\n=== Diagnostic Figures ===")
     print("\n--- Headline Bars ---")
     fig_headline_bars(df, args.outdir)
     print("\n--- Per-Model Breakdown ---")
-    fig_per_model(df, args.outdir)
+    fig_per_model(df, args.outdir, model_order)
     print("\n--- Difficulty vs Savings ---")
-    fig_difficulty_vs_savings(df, args.outdir)
+    fig_difficulty_vs_savings(df, args.outdir, model_order)
     print("\n--- Lock-Match Analysis ---")
-    fig_lock_match(df, args.outdir)
-    print("\n--- resnet50 Heatmap ---")
-    fig_resnet50_heatmap(df, args.outdir)
+    fig_lock_match(df, args.outdir, model_order)
+    print(f"\n--- {case_model} Heatmap ---")
+    fig_model_heatmap(df, args.outdir, case_model)
+
+    # Progress metric figures (only when robust benchmark columns exist)
+    if has_progress:
+        print("\n=== Progress Metric Figures ===")
+        print("\n--- Confusion Gain ---")
+        fig_confusion_gain(df, args.outdir)
+        print("\n--- Confidence Drop ---")
+        fig_confidence_drop(df, args.outdir, model_order)
+        print("\n--- Peak Adversarial Confidence ---")
+        fig_peak_adv(df, args.outdir)
 
     print("\n=== Publication Figures ===")
     print("\n--- CDF ---")
@@ -900,11 +1163,11 @@ def main():
 
     if not args.skip_replay:
         print("\n--- Lock-in Dynamics (live replay) ---")
-        fig_lockin(args.outdir)
+        fig_lockin(args.outdir, source=source)
     else:
         print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
 
-    print_summary(df)
+    print_summary(df, source=source)
 
     if args.show:
         plt.show()
