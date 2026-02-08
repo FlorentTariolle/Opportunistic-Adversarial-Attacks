@@ -464,11 +464,19 @@ def fig_model_heatmap(df: pd.DataFrame, outdir: str, case_model: str):
 # Progress Metric Figures (robust benchmarks — uses all runs)
 # ===========================================================================
 
-def fig_confusion_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
-    """Per-model breakdown: mean confusion_gain by method x mode (all runs)."""
-    models = [m for m in model_order if m in df["model"].unique()]
+def fig_margin_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
+    """Per-model breakdown: mean final margin by method x mode (all runs).
+
+    margin = 1 - confusion_final = max(P(true) - P(best_other), 0).
+    Lower margin = model more confused = better attack.  Consistent with
+    standard iteration bars where lower = better.
+    """
+    df_m = df.copy()
+    df_m["margin_final"] = 1.0 - df_m["confusion_final"]
+
+    models = [m for m in model_order if m in df_m["model"].unique()]
     if not models:
-        print("  Skipping fig_confusion_per_model: no matching models")
+        print("  Skipping fig_margin_per_model: no matching models")
         return None
     methods = ["SimBA", "SquareAttack"]
 
@@ -481,9 +489,9 @@ def fig_confusion_per_model(df: pd.DataFrame, outdir: str, model_order: list[str
         axes = [axes]
 
     for ax, model in zip(axes, models):
-        sub = df[df["model"] == model]
-        agg = sub.groupby(["method", "mode"], observed=True)["confusion_gain"].agg(["mean"]).reset_index()
-        agg["ci"] = sub.groupby(["method", "mode"], observed=True)["confusion_gain"].apply(_ci95).values
+        sub = df_m[df_m["model"] == model]
+        agg = sub.groupby(["method", "mode"], observed=True)["margin_final"].agg(["mean"]).reset_index()
+        agg["ci"] = sub.groupby(["method", "mode"], observed=True)["margin_final"].apply(_ci95).values
 
         x = np.arange(len(methods))
         width = 0.22
@@ -504,7 +512,7 @@ def fig_confusion_per_model(df: pd.DataFrame, outdir: str, model_order: list[str
         ax.set_title(model, fontweight="bold")
         ax.set_ylim(bottom=0)
         if ax is axes[0]:
-            ax.set_ylabel("Mean Confusion Gain")
+            ax.set_ylabel("Mean Final Margin")
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, color=MODE_COLORS[m]) for m in MODE_ORDER
@@ -516,52 +524,146 @@ def fig_confusion_per_model(df: pd.DataFrame, outdir: str, model_order: list[str
         ncol=3,
         bbox_to_anchor=(0.5, 0.02),
     )
-    fig.suptitle("Confusion Gain by Model and Mode (All Runs)", fontsize=14)
-    _savefig(fig, outdir, "fig_confusion_per_model")
+    fig.suptitle("Final Margin by Model and Mode (All Runs, Lower = Better Attack)", fontsize=14)
+    _savefig(fig, outdir, "fig_margin_per_model")
     return fig
 
 
-def fig_peak_adv(df: pd.DataFrame, outdir: str):
-    """Box plot with strip overlay: peak_adv_conf by method x mode."""
-    import seaborn as sns
+def fig_margin_heatmap(df: pd.DataFrame, outdir: str, model_order: list[str]):
+    """Per-image margin heatmap for each model (all runs).
 
-    plot_df = df[["method", "mode", "peak_adv_conf"]].copy()
-    plot_df["Mode"] = plot_df["mode"].map(MODE_LABELS)
-    plot_df["Method"] = plot_df["method"]
+    Like fig_model_heatmap but shows margin instead of iterations.
+    Lower margin = better attack (green), higher margin = worse (red).
+    Makes the decoy class problem visible at per-image granularity.
+    """
+    df_m = df.copy()
+    df_m["margin_final"] = 1.0 - df_m["confusion_final"]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    models = [m for m in model_order if m in df_m["model"].unique()]
+    if not models:
+        print("  Skipping fig_margin_heatmap: no matching models")
+        return None
+    methods = [m for m in ["SimBA", "SquareAttack"] if m in df_m["method"].unique()]
 
-    sns.boxplot(
-        data=plot_df,
-        x="Method",
-        y="peak_adv_conf",
-        hue="Mode",
-        palette={MODE_LABELS[m]: MODE_COLORS[m] for m in MODE_ORDER},
-        ax=ax,
-        linewidth=1,
-        fliersize=0,
+    fig, axes = plt.subplots(
+        len(models), len(methods),
+        figsize=(5 * len(methods), 3.5 * len(models)),
+    )
+    if len(models) == 1:
+        axes = [axes]
+    if len(methods) == 1:
+        axes = [[ax] for ax in axes]
+
+    for row, model in enumerate(models):
+        for col, method in enumerate(methods):
+            ax = axes[row][col]
+            sub = df_m[(df_m["model"] == model) & (df_m["method"] == method)]
+            pivot = sub.pivot_table(
+                index="image", columns="mode", values="margin_final",
+                aggfunc="mean", observed=True,
+            )
+            pivot = pivot[[m for m in MODE_ORDER if m in pivot.columns]]
+
+            # Green = low margin (good attack), red = high margin (bad attack)
+            im = ax.imshow(pivot.values, aspect="auto", cmap="RdYlGn_r",
+                           vmin=0, vmax=0.8)
+            ax.set_xticks(range(len(pivot.columns)))
+            ax.set_xticklabels([MODE_LABELS.get(c, c) for c in pivot.columns], fontsize=9)
+            ax.set_yticks(range(len(pivot.index)))
+            ax.set_yticklabels(pivot.index, fontsize=9)
+            ax.set_title(f"{model} / {method}", fontweight="bold", fontsize=10)
+
+            for r in range(pivot.shape[0]):
+                for c in range(pivot.shape[1]):
+                    val = pivot.values[r, c]
+                    if np.isnan(val):
+                        text = "n/a"
+                        text_color = "gray"
+                    else:
+                        text = f"{val:.3f}"
+                        text_color = "white" if val > 0.4 else "black"
+                    ax.text(c, r, text, ha="center", va="center", fontsize=9,
+                            color=text_color, fontweight="bold")
+
+    fig.colorbar(im, ax=axes, shrink=0.6, label="Mean Final Margin (lower = better)")
+    fig.suptitle("Per-Image Final Margin by Model, Method, and Mode", fontsize=13)
+    _savefig(fig, outdir, "fig_margin_heatmap")
+    return fig
+
+
+def fig_lock_match_robust(df: pd.DataFrame, outdir: str, model_order: list[str]):
+    """Lock-match rate for robust models: does OT lock onto the same class
+    that untargeted naturally reaches?
+
+    Shows the collapse from standard-level match rates (~80%) to near-zero,
+    illustrating the decoy class problem.
+    """
+    key_cols = ["model", "method", "epsilon", "seed", "image"]
+
+    # Need untargeted adversarial_class (from any run, not just successful)
+    # and opportunistic locked_class
+    unt = df[df["mode"] == "untargeted"][key_cols + ["adversarial_class"]].rename(
+        columns={"adversarial_class": "unt_class"}
+    )
+    opp = df[df["mode"] == "opportunistic"][key_cols + ["locked_class"]].copy()
+    opp = opp[opp["locked_class"].notna()]
+
+    merged = unt.merge(opp, on=key_cols, how="inner")
+    if merged.empty:
+        print("  Skipping fig_lock_match_robust: no paired runs with lock data")
+        return None
+    merged["match"] = merged["unt_class"] == merged["locked_class"]
+
+    match_rate = (
+        merged.groupby(["model", "method"])["match"]
+        .mean()
+        .reset_index()
+        .rename(columns={"match": "match_rate"})
     )
 
-    sns.stripplot(
-        data=plot_df,
-        x="Method",
-        y="peak_adv_conf",
-        hue="Mode",
-        dodge=True,
-        palette={MODE_LABELS[m]: MODE_COLORS[m] for m in MODE_ORDER},
-        ax=ax,
-        size=3,
-        alpha=0.3,
-        jitter=True,
-        legend=False,
+    models = [m for m in model_order if m in match_rate["model"].unique()]
+    methods = ["SimBA", "SquareAttack"]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    x = np.arange(len(models))
+    width = 0.3
+    for i, method in enumerate(methods):
+        sub = match_rate[match_rate["method"] == method].set_index("model").reindex(models)
+        color = "#4878CF" if method == "SimBA" else "#D65F5F"
+        bars = ax.bar(
+            x + (i - 0.5) * width,
+            sub["match_rate"] * 100,
+            width,
+            color=color,
+            edgecolor="white",
+            linewidth=0.5,
+            label=method,
+        )
+        for bar in bars:
+            h = bar.get_height()
+            if not np.isnan(h):
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    h + 1.5,
+                    f"{h:.0f}%",
+                    ha="center",
+                    fontsize=9,
+                )
+
+    # Reference line for standard benchmark match rates
+    ax.axhline(80, color="gray", linestyle="--", linewidth=1, alpha=0.7)
+    ax.text(
+        len(models) - 0.5, 82, "Standard benchmark ~80%",
+        fontsize=8, color="gray", ha="right",
     )
 
-    ax.set_ylabel("Peak Adversarial Confidence")
-    ax.set_xlabel("")
-    ax.set_title("Peak Adversarial Confidence Distribution (All Runs)")
-    ax.set_ylim(-0.02, 1.05)
-    ax.legend(title="", loc="lower right")
-    _savefig(fig, outdir, "fig_peak_adv")
+    ax.set_xticks(x)
+    ax.set_xticklabels(models)
+    ax.set_ylabel("Lock-Match Rate (%)")
+    ax.set_title("Decoy Class Problem: OT Locks onto Wrong Class on Robust Models")
+    ax.set_ylim(0, 115)
+    ax.legend()
+    _savefig(fig, outdir, "fig_lock_match")
     return fig
 
 
@@ -994,17 +1096,13 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
     if has_progress:
         print("\n--- Progress Metrics (all runs, including failures) ---")
 
-        print("\n  Mean Confusion Gain by Method x Mode:")
-        cg = df.groupby(["method", "mode"], observed=True)["confusion_gain"].agg(
+        print("\n  Mean Final Margin by Method x Mode (lower = better attack):")
+        df_margin = df.copy()
+        df_margin["margin_final"] = 1.0 - df_margin["confusion_final"]
+        mg = df_margin.groupby(["method", "mode"], observed=True)["margin_final"].agg(
             ["mean", "std", "count"]
         ).round(4)
-        print(cg.to_string())
-
-        print("\n  Mean Peak Adversarial Confidence by Method x Mode:")
-        pa = df.groupby(["method", "mode"], observed=True)["peak_adv_conf"].agg(
-            ["mean", "std", "count"]
-        ).round(4)
-        print(pa.to_string())
+        print(mg.to_string())
 
     print("\n" + "=" * 80)
 
@@ -1067,10 +1165,12 @@ def main():
         # so only generate progress-metric figures (confusion gain, peak adv).
         print("  Robust data detected — skipping iteration-based figures")
         print("\n=== Progress Metric Figures ===")
-        print("\n--- Confusion Gain Per Model ---")
-        fig_confusion_per_model(df, args.outdir, model_order)
-        print("\n--- Peak Adversarial Confidence ---")
-        fig_peak_adv(df, args.outdir)
+        print("\n--- Final Margin Per Model ---")
+        fig_margin_per_model(df, args.outdir, model_order)
+        print("\n--- Margin Heatmap (per-image) ---")
+        fig_margin_heatmap(df, args.outdir, model_order)
+        print("\n--- Lock-Match (decoy analysis) ---")
+        fig_lock_match_robust(df, args.outdir, model_order)
     else:
         # Standard mode: full iteration-based diagnostic + publication figures.
         print("\n=== Diagnostic Figures ===")
