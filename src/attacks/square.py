@@ -30,7 +30,7 @@ class _OpportunisticSquare(torchattacks.Square):
                  opportunistic=False, stability_threshold=30,
                  targeted_mode=False, target_class=None,
                  early_stop=True, loss='margin', normalize=True,
-                 seed=0):
+                 seed=0, reference_direction=None, x_orig=None):
         super().__init__(
             model,
             norm='Linf',
@@ -54,6 +54,13 @@ class _OpportunisticSquare(torchattacks.Square):
         self._targeted_mode = targeted_mode
         self._target_class = target_class
         self._early_stop = early_stop
+
+        self._reference_direction = reference_direction
+        self._x_orig = x_orig
+        # Precompute flat reference direction
+        self._ref_flat = None
+        if reference_direction is not None:
+            self._ref_flat = reference_direction.flatten().to(device)
 
         # Will be populated during attack_single_run
         self.confidence_history = None
@@ -110,10 +117,13 @@ class _OpportunisticSquare(torchattacks.Square):
                 'max_other_class': [],
                 'max_other_class_id': [],
                 'target_class': [],
+                'cos_sim_to_ref': [],
                 'switch_iteration': None,
                 'top_classes': [],
                 'locked_class': None,
             }
+            ref_flat = self._ref_flat
+            x_orig = self._x_orig
             y_true = self._y_true
             opportunistic = self._opportunistic
             stability_threshold = self._stability_threshold
@@ -141,6 +151,10 @@ class _OpportunisticSquare(torchattacks.Square):
                     confidence_history['target_class'].append(
                         probs[0][locked_target].item()
                     )
+                if ref_flat is not None and x_orig is not None:
+                    delta = (x_img - x_orig).flatten()
+                    cos = F.cosine_similarity(delta.unsqueeze(0), ref_flat.unsqueeze(0)).item()
+                    confidence_history['cos_sim_to_ref'].append(cos)
                 if opportunistic and not switched_to_targeted:
                     top10_idx = torch.topk(probs_excl, k=10).indices.tolist()
                     top10_conf = {idx: probs[0][idx].item() for idx in top10_idx}
@@ -324,6 +338,7 @@ class SquareAttack(BaseAttack):
         early_stop: bool = True,
         opportunistic: bool = False,
         stability_threshold: int = 30,
+        reference_direction: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> torch.Tensor:
         """Generate adversarial examples using Square Attack.
@@ -396,6 +411,8 @@ class SquareAttack(BaseAttack):
                 loss=self.loss,
                 normalize=self.normalize,
                 seed=self.seed_value,
+                reference_direction=reference_direction,
+                x_orig=xi,
             )
 
             if targeted:

@@ -1,11 +1,12 @@
-"""Winrate analysis: success rate vs query budget figures.
+"""CDF analysis: success rate vs query budget figures.
 
 Reads benchmark_winrate.csv and produces:
   - fig_winrate: combined 6-curve plot (2 methods x 3 modes)
   - fig_winrate_by_mode: 3 subplots (one per mode, 2 curves each)
 
-SimBA winrate is derived from a single run via CDF (iterations <= budget).
-SquareAttack winrate is one point per budget (separate runs).
+Both methods use true CDF: CDF(alpha) = fraction of attacks with t_a <= alpha,
+derived from a single run per (method, image, mode) at a fixed budget.
+Legacy SimBA rows with budget > 15K are capped at 15K.
 
 Usage:
     python analyze_winrate.py                       # Default CSV + output
@@ -47,11 +48,10 @@ def _setup_style():
     })
 
     try:
+        from matplotlib.texmanager import TexManager
+        TexManager._run_checked_subprocess(
+            ["latex", "--version"], "latex")
         plt.rcParams["text.usetex"] = True
-        fig_test, ax_test = plt.subplots(figsize=(1, 1))
-        ax_test.set_title("$x$")
-        fig_test.canvas.draw()
-        plt.close(fig_test)
     except Exception:
         plt.rcParams["text.usetex"] = False
 
@@ -108,31 +108,91 @@ def load_data(csv_path: str) -> pd.DataFrame:
 
 
 # ===========================================================================
-# Winrate computation
+# CDF computation
 # ===========================================================================
-def compute_simba_winrate(df: pd.DataFrame, budgets: np.ndarray) -> dict:
-    """Compute SimBA winrate at each budget via CDF of iteration counts.
+BUDGET_CAP = 15_000
 
-    For each mode, winrate(B) = count(success AND iterations <= B) / n_images.
+
+def bootstrap_cdf(df: pd.DataFrame, budgets: np.ndarray,
+                   n_bootstrap: int = 1000, seed: int = 0):
+    """Bootstrap CDF with 90% confidence intervals.
 
     Args:
-        df: DataFrame filtered to method='SimBA'.
-        budgets: Array of budget values to evaluate.
+        df: DataFrame filtered to a single method (excluding oracle_probe).
+        budgets: Array of budget thresholds.
+        n_bootstrap: Number of bootstrap samples.
+        seed: RNG seed for reproducibility.
 
     Returns:
-        dict mapping mode -> array of winrates (same length as budgets).
+        dict mapping mode -> (cdf_mean, ci_lo, ci_hi) arrays.
+    """
+    rng = np.random.RandomState(seed)
+    result = {}
+    for mode in MODE_ORDER:
+        subset = df[df["mode"] == mode].copy()
+        image_names = subset["image"].unique()
+        n_images = len(image_names)
+        if n_images == 0:
+            z = np.zeros(len(budgets))
+            result[mode] = (z, z.copy(), z.copy())
+            continue
+
+        # Pre-compute per-image success iteration (or NaN if failed/capped)
+        img_iter = {}
+        for name in image_names:
+            row = subset[subset["image"] == name].iloc[0]
+            if row["success"] and row["iterations"] <= BUDGET_CAP:
+                img_iter[name] = row["iterations"]
+            else:
+                img_iter[name] = np.nan
+
+        all_cdfs = np.empty((n_bootstrap, len(budgets)))
+        for b in range(n_bootstrap):
+            sample_names = rng.choice(image_names, size=n_images, replace=True)
+            iters = np.array([img_iter[n] for n in sample_names])
+            success_iters = np.sort(iters[~np.isnan(iters)])
+            counts = np.searchsorted(success_iters, budgets, side="right")
+            all_cdfs[b] = counts / n_images
+
+        cdf_mean = all_cdfs.mean(axis=0)
+        ci_lo = np.percentile(all_cdfs, 5, axis=0)
+        ci_hi = np.percentile(all_cdfs, 95, axis=0)
+        result[mode] = (cdf_mean, ci_lo, ci_hi)
+    return result
+
+
+def compute_cdf(df: pd.DataFrame, budgets: np.ndarray) -> dict:
+    """Compute CDF of attack success at each budget threshold.
+
+    For each mode, CDF(B) = count(success AND iterations <= B) / n_images.
+    One row per (image, mode) is expected (single run per combo).
+
+    Legacy SimBA rows recorded at budget > BUDGET_CAP are handled:
+      - If success=True and iterations <= BUDGET_CAP: kept as success
+      - If success=True and iterations > BUDGET_CAP: treated as failure
+      - If success=False: stays failure (iterations capped to BUDGET_CAP)
+
+    Args:
+        df: DataFrame filtered to a single method (excluding oracle_probe).
+        budgets: Array of budget thresholds to evaluate.
+
+    Returns:
+        dict mapping mode -> array of CDF values (same length as budgets).
     """
     result = {}
     for mode in MODE_ORDER:
-        subset = df[df["mode"] == mode]
+        subset = df[df["mode"] == mode].copy()
         n_images = len(subset)
         if n_images == 0:
             result[mode] = np.zeros(len(budgets))
             continue
 
-        # Get iteration counts for successful attacks
+        # Cap legacy rows: success only counts if iterations <= BUDGET_CAP
+        capped_success = subset["success"] & (subset["iterations"] <= BUDGET_CAP)
+
+        # Get iteration counts for attacks that succeed within the cap
         success_iters = np.sort(
-            subset.loc[subset["success"], "iterations"].values
+            subset.loc[capped_success, "iterations"].values
         )
 
         # CDF via searchsorted: count of success_iters <= B
@@ -142,38 +202,11 @@ def compute_simba_winrate(df: pd.DataFrame, budgets: np.ndarray) -> dict:
     return result
 
 
-def compute_square_winrate(df: pd.DataFrame) -> dict:
-    """Compute SquareAttack winrate per budget.
-
-    For each mode, winrate(B) = count(success at budget=B) / n_images_at_B.
-
-    Args:
-        df: DataFrame filtered to method='SquareAttack' (excluding oracle_probe).
-
-    Returns:
-        dict mapping mode -> (budgets_array, winrates_array).
-    """
-    result = {}
-    for mode in MODE_ORDER:
-        subset = df[df["mode"] == mode]
-        if subset.empty:
-            result[mode] = (np.array([]), np.array([]))
-            continue
-
-        grouped = subset.groupby("budget")["success"].agg(["sum", "count"])
-        grouped = grouped.sort_index()
-        budgets = grouped.index.values
-        winrates = grouped["sum"].values / grouped["count"].values
-        result[mode] = (budgets, winrates)
-
-    return result
-
-
 # ===========================================================================
 # Figures
 # ===========================================================================
-def fig_winrate(simba_wr, sq_wr, budgets, outdir, show):
-    """Combined 6-curve plot: 2 methods x 3 modes."""
+def fig_winrate(simba_cdf, sq_cdf, budgets, outdir, show):
+    """Combined 6-curve plot: 2 methods x 3 modes with 90% CI bands."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for mode in MODE_ORDER:
@@ -181,21 +214,23 @@ def fig_winrate(simba_wr, sq_wr, budgets, outdir, show):
         label_mode = MODE_LABELS[mode]
 
         # SimBA (solid)
-        ax.plot(budgets, simba_wr[mode],
+        mean, lo, hi = simba_cdf[mode]
+        ax.plot(budgets, mean,
                 color=color, linestyle=METHOD_LINESTYLES["SimBA"],
                 linewidth=1.5,
                 label=f"{METHOD_LABELS['SimBA']} — {label_mode}")
+        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         # SquareAttack (dashed)
-        sq_b, sq_w = sq_wr[mode]
-        if len(sq_b) > 0:
-            ax.plot(sq_b, sq_w,
-                    color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
-                    linewidth=1.5,
-                    label=f"{METHOD_LABELS['SquareAttack']} — {label_mode}")
+        mean, lo, hi = sq_cdf[mode]
+        ax.plot(budgets, mean,
+                color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
+                linewidth=1.5,
+                label=f"{METHOD_LABELS['SquareAttack']} — {label_mode}")
+        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
     ax.set_xlabel("Query budget")
-    ax.set_ylabel("Success rate (winrate)")
+    ax.set_ylabel("Success rate (CDF)")
     ax.set_xlim(0, budgets[-1])
     ax.set_ylim(-0.02, 1.02)
     ax.legend(loc="lower right", framealpha=0.9)
@@ -207,8 +242,8 @@ def fig_winrate(simba_wr, sq_wr, budgets, outdir, show):
     plt.close(fig)
 
 
-def fig_winrate_by_mode(simba_wr, sq_wr, budgets, outdir, show):
-    """3 subplots (one per mode), 2 curves each."""
+def fig_winrate_by_mode(simba_cdf, sq_cdf, budgets, outdir, show):
+    """3 subplots (one per mode), 2 curves each, with 90% CI bands."""
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=True)
 
     for ax, mode in zip(axes, MODE_ORDER):
@@ -216,18 +251,20 @@ def fig_winrate_by_mode(simba_wr, sq_wr, budgets, outdir, show):
         label_mode = MODE_LABELS[mode]
 
         # SimBA
-        ax.plot(budgets, simba_wr[mode],
+        mean, lo, hi = simba_cdf[mode]
+        ax.plot(budgets, mean,
                 color=color, linestyle=METHOD_LINESTYLES["SimBA"],
                 linewidth=1.5,
                 label=METHOD_LABELS["SimBA"])
+        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         # SquareAttack
-        sq_b, sq_w = sq_wr[mode]
-        if len(sq_b) > 0:
-            ax.plot(sq_b, sq_w,
-                    color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
-                    linewidth=1.5,
-                    label=METHOD_LABELS["SquareAttack"])
+        mean, lo, hi = sq_cdf[mode]
+        ax.plot(budgets, mean,
+                color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
+                linewidth=1.5,
+                label=METHOD_LABELS["SquareAttack"])
+        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         ax.set_xlabel("Query budget")
         ax.set_title(label_mode)
@@ -235,7 +272,7 @@ def fig_winrate_by_mode(simba_wr, sq_wr, budgets, outdir, show):
         ax.set_ylim(-0.02, 1.02)
         ax.legend(loc="lower right", framealpha=0.9)
 
-    axes[0].set_ylabel("Success rate (winrate)")
+    axes[0].set_ylabel("Success rate (CDF)")
 
     _savefig(fig, outdir, "fig_winrate_by_mode")
     if show:
@@ -265,8 +302,8 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
 
-    # Split by method
-    df_simba = df[df["method"] == "SimBA"]
+    # Split by method (exclude oracle_probe rows)
+    df_simba = df[(df["method"] == "SimBA") & (df["mode"] != "oracle_probe")]
     df_square = df[
         (df["method"] == "SquareAttack") & (df["mode"] != "oracle_probe")
     ]
@@ -276,33 +313,28 @@ def main():
     print(f"SimBA: {len(df_simba)} rows, {n_simba} images")
     print(f"SquareAttack: {len(df_square)} rows, {n_square} images")
 
-    # Determine budget range for SimBA CDF evaluation
-    # Use SquareAttack budgets as x-axis, plus extend to SimBA max
-    simba_max = int(df_simba["budget"].max()) if len(df_simba) > 0 else 20_000
-    sq_budgets_raw = sorted(df_square["budget"].unique()) if len(df_square) > 0 else []
-    sq_step = (sq_budgets_raw[1] - sq_budgets_raw[0]) if len(sq_budgets_raw) > 1 else 50
-    # Unified budget axis: from sq_step to simba_max in steps
-    budgets = np.arange(sq_step, simba_max + 1, sq_step)
+    # Unified budget axis: 50-step from 50 to BUDGET_CAP
+    step = 50
+    budgets = np.arange(step, BUDGET_CAP + 1, step)
 
-    print(f"Budget axis: {budgets[0]}..{budgets[-1]} (step={sq_step}, "
+    print(f"Budget axis: {budgets[0]}..{budgets[-1]} (step={step}, "
           f"{len(budgets)} points)")
 
-    # Compute winrates
-    simba_wr = compute_simba_winrate(df_simba, budgets)
-    sq_wr = compute_square_winrate(df_square)
+    # Compute bootstrapped CDF for both methods (with 90% CI)
+    simba_cdf = bootstrap_cdf(df_simba, budgets)
+    sq_cdf = bootstrap_cdf(df_square, budgets)
 
-    # Print summary
+    # Print summary (use bootstrap mean)
     for mode in MODE_ORDER:
-        simba_final = simba_wr[mode][-1] if len(simba_wr[mode]) > 0 else 0
-        sq_b, sq_w = sq_wr[mode]
-        sq_final = sq_w[-1] if len(sq_w) > 0 else 0
-        print(f"  {mode:>14s}: SimBA={simba_final:.1%} (at {budgets[-1]}), "
-              f"SquareAttack={sq_final:.1%} (at {sq_b[-1] if len(sq_b) > 0 else 'N/A'})")
+        simba_final = simba_cdf[mode][0][-1] if len(simba_cdf[mode][0]) > 0 else 0
+        sq_final = sq_cdf[mode][0][-1] if len(sq_cdf[mode][0]) > 0 else 0
+        print(f"  {mode:>14s}: SimBA={simba_final:.1%}, "
+              f"SquareAttack={sq_final:.1%} (at {budgets[-1]})")
 
     # Generate figures
     print(f"\nGenerating figures in {args.outdir}/")
-    fig_winrate(simba_wr, sq_wr, budgets, args.outdir, args.show)
-    fig_winrate_by_mode(simba_wr, sq_wr, budgets, args.outdir, args.show)
+    fig_winrate(simba_cdf, sq_cdf, budgets, args.outdir, args.show)
+    fig_winrate_by_mode(simba_cdf, sq_cdf, budgets, args.outdir, args.show)
 
     print("\nDone.")
 

@@ -3,6 +3,7 @@
 from typing import Optional, Tuple
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import math
 from .base import BaseAttack
@@ -55,6 +56,7 @@ class SimBA(BaseAttack):
         early_stop: bool = True,
         opportunistic: bool = False,
         stability_threshold: int = 30,
+        reference_direction: Optional[torch.Tensor] = None,
         **kwargs
     ) -> torch.Tensor:
         """Generate adversarial examples using SimBA.
@@ -104,7 +106,8 @@ class SimBA(BaseAttack):
             t_class = target_class[0] if targeted else None
             result = self._attack_single_image(
                 x[0], y[0], track_confidence=True, targeted=targeted, target_class=t_class,
-                early_stop=early_stop, opportunistic=opportunistic, stability_threshold=stability_threshold
+                early_stop=early_stop, opportunistic=opportunistic, stability_threshold=stability_threshold,
+                reference_direction=reference_direction
             )
             if isinstance(result, tuple) and len(result) == 2:
                 x_adv[0], self.confidence_history = result
@@ -119,7 +122,7 @@ class SimBA(BaseAttack):
                 warnings.warn(f"track_confidence=True is only supported for batch_size=1. Got batch_size={batch_size}. Confidence tracking disabled.")
             for i in range(batch_size):
                 t_class = target_class[i] if targeted else None
-                result = self._attack_single_image(x[i], y[i], track_confidence=False, targeted=targeted, target_class=t_class, early_stop=early_stop, opportunistic=opportunistic, stability_threshold=stability_threshold)
+                result = self._attack_single_image(x[i], y[i], track_confidence=False, targeted=targeted, target_class=t_class, early_stop=early_stop, opportunistic=opportunistic, stability_threshold=stability_threshold, reference_direction=reference_direction)
                 if isinstance(result, tuple):
                     x_adv[i] = result[0]
                 else:
@@ -136,7 +139,8 @@ class SimBA(BaseAttack):
         target_class: Optional[torch.Tensor] = None,
         early_stop: bool = True,
         opportunistic: bool = False,
-        stability_threshold: int = 30
+        stability_threshold: int = 30,
+        reference_direction: Optional[torch.Tensor] = None,
     ) -> tuple:
         """Attack a single image.
 
@@ -161,10 +165,16 @@ class SimBA(BaseAttack):
             'max_other_class': [],
             'max_other_class_id': [],
             'target_class': [],
+            'cos_sim_to_ref': [],
             'switch_iteration': None,  # Iteration when opportunistic mode switched to targeted
             'top_classes': [],  # List of dicts {class_id: confidence} for top 10 classes (opportunistic only)
             'locked_class': None  # Class ID that was locked (opportunistic only)
         }
+
+        # Precompute flat reference direction for cosine similarity
+        ref_flat = None
+        if reference_direction is not None:
+            ref_flat = reference_direction.flatten().to(self.device)
 
         # Opportunistic targeting state
         if opportunistic:
@@ -249,6 +259,10 @@ class SimBA(BaseAttack):
                         confidence_history['max_other_class_id'].append(max_other_class_id)
                         if targeted and target_class is not None:
                             confidence_history['target_class'].append(probs[0][target_class].item())
+                        if ref_flat is not None:
+                            delta = (x_adv - x).flatten()
+                            cos = F.cosine_similarity(delta.unsqueeze(0), ref_flat.unsqueeze(0)).item()
+                            confidence_history['cos_sim_to_ref'].append(cos)
                         # Track top 10 classes for opportunistic mode (before locking)
                         if opportunistic and not switched_to_targeted:
                             top10_indices = torch.topk(probs_excluding_original, k=10).indices.tolist()
