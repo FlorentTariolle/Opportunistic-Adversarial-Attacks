@@ -55,7 +55,7 @@ Opportunistic targeting matches oracle-targeted success rates for both attacks. 
 | SimBA | 5,117 | 4,295 | 4,383 | **14.3%** |
 | Square Attack | 865 | 430 | 447 | **48.3%** |
 
-![Headline Bars](results/figures/fig_headline_bars.png)
+![Headline Bars](results/figures/standard/fig_headline_bars.png)
 
 For SimBA, opportunistic targeting reduces mean iterations by 14.3%, landing within 2% of the oracle upper bound. For Square Attack, the mean reduction is 48.3%. However, the Square Attack numbers are dominated by a specific subset (ResNet-50, discussed in Section 3), and the median picture is more nuanced.
 
@@ -66,7 +66,7 @@ For SimBA, opportunistic targeting reduces mean iterations by 14.3%, landing wit
 | SimBA | 5,865 | 4,706 |
 | Square Attack | 292 | 280 |
 
-![Violin](results/figures/fig_violin.png)
+![Violin](results/figures/standard/fig_violin.png)
 
 The violin plot reveals a structural difference between the two attacks. SimBA shows a tight, high-query distribution where opportunistic targeting compresses the upper tail. Square Attack has a bimodal distribution: most runs converge very quickly (~1–500 queries), with a long tail of hard cases in the thousands. OT primarily helps by cutting this long tail.
 
@@ -89,7 +89,7 @@ The most striking result is the per-model breakdown:
 
 *\*SimBA on ResNet-50 untargeted: only 7/12 runs succeed (5 hit the 10K ceiling). The untargeted mean is computed from successful runs only, meaning the true cost is higher — so 36.6% is a conservative lower bound. Meanwhile, OT achieves 12/12 success.*
 
-![Per-Model Breakdown](results/figures/fig_per_model.png)
+![Per-Model Breakdown](results/figures/standard/fig_per_model.png)
 
 **ResNet-50 is where opportunistic targeting shines.** SimBA sees a 36.6% reduction; Square Attack sees a 64.0% reduction. On the other end, ResNet-18 gains are minimal for SimBA (1.6%).
 
@@ -97,7 +97,7 @@ We hypothesize this follows from the **latent space dimensionality**: a 50-layer
 
 This is supported by the difficulty-savings scatter plot (r = 0.38, p < 0.001):
 
-![Difficulty vs Savings](results/figures/fig_difficulty_vs_savings.png)
+![Difficulty vs Savings](results/figures/standard/fig_difficulty_vs_savings.png)
 
 There is a statistically significant positive correlation between untargeted difficulty (iteration count) and the benefit of opportunistic targeting. **The harder the attack, the more OT helps.** This is precisely the regime that matters for practical adversarial evaluation: easy attacks do not need optimization, and OT provides the largest gains on the hard cases where query budgets actually bind.
 
@@ -105,7 +105,7 @@ There is a statistically significant positive correlation between untargeted dif
 
 The per-image heatmap for ResNet-50 makes the pattern granular:
 
-![ResNet-50 Heatmap](results/figures/fig_resnet50_heatmap.png)
+![ResNet-50 Heatmap](results/figures/standard/fig_resnet50_heatmap.png)
 
 For SimBA, the dumbbell and hammer images are particularly telling:
 - **dumbbell.jpg**: Untargeted hits the 10,000 ceiling on all 3 seeds (true cost unknown, likely much higher). Opportunistic converges at ~5,066. This means OT converts a *complete failure* into a success — the savings are technically infinite under a fixed budget.
@@ -119,7 +119,7 @@ For Square Attack on ResNet-50, hammer.jpg shows the most dramatic case: 7,670 u
 
 The confidence traces from live replay illustrate *why* opportunistic targeting works:
 
-![Lock-in Dynamics](results/figures/fig_lockin.png)
+![Lock-in Dynamics](results/figures/standard/fig_lockin.png)
 
 ### 4.1 Square Attack on ResNet-50 (hammer.jpg)
 
@@ -156,7 +156,7 @@ SimBA locks in almost immediately (6–10 iterations), reflecting its per-coordi
 
 A natural question: does the stability heuristic lock onto the same class that an unconstrained untargeted attack would eventually reach?
 
-![Lock-Match](results/figures/fig_lock_match.png)
+![Lock-Match](results/figures/standard/fig_lock_match.png)
 
 | Method | Overall Lock-Match Rate |
 |--------|------------------------|
