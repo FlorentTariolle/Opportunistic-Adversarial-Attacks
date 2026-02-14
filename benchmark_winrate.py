@@ -1,13 +1,14 @@
-"""Winrate benchmark: success rate vs query budget.
+"""CDF benchmark: success rate vs query budget.
 
-Runs SimBA (single run, CDF-derived winrate) and SquareAttack (per-budget runs)
-on ResNet-50 (standard) across 100 random ImageNet val images in three modes:
-untargeted, targeted-oracle, and opportunistic.
+Runs SimBA and SquareAttack on ResNet-50 (standard) across 100 random ImageNet
+val images in three modes: untargeted, targeted-oracle, and opportunistic.
+Each (method, image, mode) combo runs once at a fixed 15K budget.  The CDF is
+derived in analyze_winrate.py from the recorded iteration counts.
 
 Usage:
-    python benchmark_winrate.py                           # Full run (100 images)
-    python benchmark_winrate.py --n-images 2 --sq-budget-step 2000  # Smoke test
-    python benchmark_winrate.py --clear                   # Clear previous CSV
+    python benchmark_winrate.py                   # Full run (100 images)
+    python benchmark_winrate.py --n-images 2      # Smoke test
+    python benchmark_winrate.py --clear           # Clear previous CSV
 """
 
 import argparse
@@ -30,8 +31,7 @@ from src.attacks.square import SquareAttack
 MODEL_NAME = 'resnet50'
 SOURCE = 'standard'
 EPSILON = 8 / 255
-SIMBA_BUDGET = 20_000
-SQ_MAX_BUDGET = 10_000
+MAX_BUDGET = 15_000
 STABILITY_THRESHOLD = 5
 VAL_DIR = Path('data/imagenet/val')
 RESULTS_DIR = Path('results')
@@ -256,31 +256,12 @@ def make_row(method, image_name, true_label, mode, budget, result,
     }
 
 
-def make_synthetic_row(method, image_name, true_label, mode, budget,
-                       oracle_target=None):
-    """Build a synthetic success row for saturated budgets."""
-    return {
-        'method': method,
-        'image': image_name,
-        'true_label': true_label,
-        'mode': mode,
-        'budget': budget,
-        'iterations': budget,
-        'success': True,
-        'adversarial_class': '',
-        'oracle_target': oracle_target if oracle_target is not None else '',
-        'switch_iteration': '',
-        'locked_class': '',
-        'timestamp': datetime.now().isoformat(),
-    }
-
-
 # ===========================================================================
 # Main
 # ===========================================================================
 def main():
     parser = argparse.ArgumentParser(
-        description="Winrate benchmark: success rate vs query budget"
+        description="CDF benchmark: success rate vs query budget"
     )
     parser.add_argument('--clear', action='store_true',
                         help="Delete previous CSV results before running")
@@ -288,28 +269,19 @@ def main():
                         help="Number of images to use (default: 100)")
     parser.add_argument('--image-seed', type=int, default=42,
                         help="Seed for image selection (default: 42)")
-    parser.add_argument('--sq-budget-step', type=int, default=50,
-                        help="SquareAttack budget step size (default: 50)")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    sq_budgets = list(range(args.sq_budget_step, SQ_MAX_BUDGET + 1,
-                            args.sq_budget_step))
 
     print(f"Device: {device}")
     print(f"Model: {MODEL_NAME} ({SOURCE})")
     print(f"Epsilon: {EPSILON:.6f} ({EPSILON * 255:.0f}/255)")
     print(f"Images: {args.n_images} (seed={args.image_seed})")
-    print(f"SimBA budget: {SIMBA_BUDGET}")
-    print(f"SquareAttack budgets: {len(sq_budgets)} values "
-          f"({sq_budgets[0]}..{sq_budgets[-1]}, step={args.sq_budget_step})")
+    print(f"Budget: {MAX_BUDGET} (both methods)")
     print(f"Stability threshold: {STABILITY_THRESHOLD}")
 
-    # Worst case run count
-    simba_runs = args.n_images * 3
-    sq_oracle_runs = args.n_images
-    sq_sweep_runs = len(sq_budgets) * 3 * args.n_images
-    total_runs = simba_runs + sq_oracle_runs + sq_sweep_runs
+    # Total runs: 3*N (SimBA) + N (oracle) + 3*N (SquareAttack) = 7N
+    total_runs = args.n_images * 7
     print(f"Total runs (worst case): {total_runs}")
     print()
 
@@ -348,7 +320,7 @@ def main():
     start_time = time.time()
 
     # ------------------------------------------------------------------
-    # Phase 1: SimBA (single run per mode per image, budget=20000)
+    # Phase 1: SimBA (single run per mode per image)
     # ------------------------------------------------------------------
     print(f"\n{'='*70}")
     print("Phase 1: SimBA (3 modes x {} images)".format(n_images))
@@ -358,13 +330,12 @@ def main():
         y_true_tensor = torch.tensor([y_true], device=device)
 
         # 1a. Untargeted
-        key = ('SimBA', image_name, 'untargeted', str(SIMBA_BUDGET))
+        key = ('SimBA', image_name, 'untargeted', str(MAX_BUDGET))
         if key not in existing_keys:
             result = run_attack(model, 'SimBA', x, y_true_tensor,
-                                'untargeted', None, SIMBA_BUDGET, device)
-            oracle_target = result['adversarial_class'] if result['success'] else None
+                                'untargeted', None, MAX_BUDGET, device)
             row = make_row('SimBA', image_name, y_true, 'untargeted',
-                           SIMBA_BUDGET, result)
+                           MAX_BUDGET, result)
             append_row(row, csv_path)
             completed += 1
             status = 'OK' if result['success'] else 'FAIL'
@@ -380,18 +351,17 @@ def main():
         # Determine SimBA oracle target
         simba_oracle = oracle_targets.get(('SimBA', image_name))
         if simba_oracle is None:
-            # Run probe to determine oracle target
             simba_oracle = determine_oracle_target(
-                model, 'SimBA', x, y_true_tensor, SIMBA_BUDGET, device)
+                model, 'SimBA', x, y_true_tensor, MAX_BUDGET, device)
             oracle_targets[('SimBA', image_name)] = simba_oracle
 
         # 1b. Targeted
-        key = ('SimBA', image_name, 'targeted', str(SIMBA_BUDGET))
+        key = ('SimBA', image_name, 'targeted', str(MAX_BUDGET))
         if key not in existing_keys:
             result = run_attack(model, 'SimBA', x, y_true_tensor,
-                                'targeted', simba_oracle, SIMBA_BUDGET, device)
+                                'targeted', simba_oracle, MAX_BUDGET, device)
             row = make_row('SimBA', image_name, y_true, 'targeted',
-                           SIMBA_BUDGET, result, oracle_target=simba_oracle)
+                           MAX_BUDGET, result, oracle_target=simba_oracle)
             append_row(row, csv_path)
             completed += 1
             status = 'OK' if result['success'] else 'FAIL'
@@ -400,12 +370,12 @@ def main():
                   f"(target={simba_oracle})")
 
         # 1c. Opportunistic
-        key = ('SimBA', image_name, 'opportunistic', str(SIMBA_BUDGET))
+        key = ('SimBA', image_name, 'opportunistic', str(MAX_BUDGET))
         if key not in existing_keys:
             result = run_attack(model, 'SimBA', x, y_true_tensor,
-                                'opportunistic', None, SIMBA_BUDGET, device)
+                                'opportunistic', None, MAX_BUDGET, device)
             row = make_row('SimBA', image_name, y_true, 'opportunistic',
-                           SIMBA_BUDGET, result)
+                           MAX_BUDGET, result)
             append_row(row, csv_path)
             completed += 1
             status = 'OK' if result['success'] else 'FAIL'
@@ -427,21 +397,21 @@ def main():
     for img_idx, (image_name, x, y_true) in enumerate(images):
         y_true_tensor = torch.tensor([y_true], device=device)
 
-        key = ('SquareAttack', image_name, 'oracle_probe', str(SQ_MAX_BUDGET))
+        key = ('SquareAttack', image_name, 'oracle_probe', str(MAX_BUDGET))
         if key not in existing_keys:
             result = run_attack(model, 'SquareAttack', x, y_true_tensor,
-                                'untargeted', None, SQ_MAX_BUDGET, device)
+                                'untargeted', None, MAX_BUDGET, device)
             # Determine oracle target
             if result['success']:
                 sq_oracle = result['adversarial_class']
             else:
                 sq_oracle = determine_oracle_target(
                     model, 'SquareAttack', x, y_true_tensor,
-                    SQ_MAX_BUDGET, device)
+                    MAX_BUDGET, device)
             oracle_targets[('SquareAttack', image_name)] = sq_oracle
 
             row = make_row('SquareAttack', image_name, y_true, 'oracle_probe',
-                           SQ_MAX_BUDGET, result, oracle_target=sq_oracle)
+                           MAX_BUDGET, result, oracle_target=sq_oracle)
             append_row(row, csv_path)
             completed += 1
             status = 'OK' if result['success'] else 'FAIL'
@@ -453,97 +423,65 @@ def main():
             if ('SquareAttack', image_name) not in oracle_targets:
                 sq_oracle = determine_oracle_target(
                     model, 'SquareAttack', x, y_true_tensor,
-                    SQ_MAX_BUDGET, device)
+                    MAX_BUDGET, device)
                 oracle_targets[('SquareAttack', image_name)] = sq_oracle
 
     # ------------------------------------------------------------------
-    # Phase 3: SquareAttack budget sweep (budget-outer for saturation)
+    # Phase 3: SquareAttack (single run per mode per image)
     # ------------------------------------------------------------------
     print(f"\n{'='*70}")
-    print("Phase 3: SquareAttack sweep ({} budgets x 3 modes x {} images)"
-          .format(len(sq_budgets), n_images))
+    print("Phase 3: SquareAttack (3 modes x {} images)".format(n_images))
     print(f"{'='*70}")
 
-    modes = ['untargeted', 'targeted', 'opportunistic']
-    saturated = {mode: False for mode in modes}
+    for img_idx, (image_name, x, y_true) in enumerate(images):
+        y_true_tensor = torch.tensor([y_true], device=device)
+        sq_oracle = oracle_targets.get(('SquareAttack', image_name))
 
-    for b_idx, budget in enumerate(sq_budgets):
-        if all(saturated.values()):
-            print(f"\nAll modes saturated — skipping remaining budgets")
-            # Write synthetic rows for all remaining budgets
-            for remaining_budget in sq_budgets[b_idx:]:
-                for mode in modes:
-                    for image_name, x, y_true in images:
-                        sq_oracle = oracle_targets.get(
-                            ('SquareAttack', image_name))
-                        ot = sq_oracle if mode == 'targeted' else None
-                        key = ('SquareAttack', image_name, mode,
-                               str(remaining_budget))
-                        if key not in existing_keys:
-                            row = make_synthetic_row(
-                                'SquareAttack', image_name, y_true, mode,
-                                remaining_budget, oracle_target=ot)
-                            append_row(row, csv_path)
-                            completed += 1
-            break
+        # 3a. Untargeted
+        key = ('SquareAttack', image_name, 'untargeted', str(MAX_BUDGET))
+        if key not in existing_keys:
+            result = run_attack(model, 'SquareAttack', x, y_true_tensor,
+                                'untargeted', None, MAX_BUDGET, device)
+            row = make_row('SquareAttack', image_name, y_true, 'untargeted',
+                           MAX_BUDGET, result)
+            append_row(row, csv_path)
+            completed += 1
+            status = 'OK' if result['success'] else 'FAIL'
+            print(f"[{completed}/{total_runs}] SqAtk untargeted | "
+                  f"{image_name} | {result['iterations']} iters | {status}")
 
-        for mode in modes:
-            if saturated[mode]:
-                # Write synthetic success rows for this budget
-                for image_name, x, y_true in images:
-                    sq_oracle = oracle_targets.get(
-                        ('SquareAttack', image_name))
-                    ot = sq_oracle if mode == 'targeted' else None
-                    key = ('SquareAttack', image_name, mode, str(budget))
-                    if key not in existing_keys:
-                        row = make_synthetic_row(
-                            'SquareAttack', image_name, y_true, mode,
-                            budget, oracle_target=ot)
-                        append_row(row, csv_path)
-                        completed += 1
-                print(f"  budget={budget:>5d} | {mode:>14s} | "
-                      f"SATURATED (synthetic)")
-                continue
+        # 3b. Targeted
+        key = ('SquareAttack', image_name, 'targeted', str(MAX_BUDGET))
+        if key not in existing_keys:
+            target = sq_oracle
+            result = run_attack(model, 'SquareAttack', x, y_true_tensor,
+                                'targeted', target, MAX_BUDGET, device)
+            row = make_row('SquareAttack', image_name, y_true, 'targeted',
+                           MAX_BUDGET, result, oracle_target=sq_oracle)
+            append_row(row, csv_path)
+            completed += 1
+            status = 'OK' if result['success'] else 'FAIL'
+            print(f"[{completed}/{total_runs}] SqAtk targeted | "
+                  f"{image_name} | {result['iterations']} iters | {status} "
+                  f"(target={sq_oracle})")
 
-            successes = 0
-            for img_idx, (image_name, x, y_true) in enumerate(images):
-                y_true_tensor = torch.tensor([y_true], device=device)
-                sq_oracle = oracle_targets.get(('SquareAttack', image_name))
-                target = sq_oracle if mode == 'targeted' else None
-
-                key = ('SquareAttack', image_name, mode, str(budget))
-                if key in existing_keys:
-                    # Count existing successes for saturation check
-                    # (We can't easily read back from CSV here, so skip
-                    # saturation for resumed budgets — conservative)
-                    successes = -1  # Signal: can't check saturation
-                    continue
-
-                result = run_attack(model, 'SquareAttack', x, y_true_tensor,
-                                    mode, target, budget, device)
-                ot = sq_oracle if mode == 'targeted' else None
-                row = make_row('SquareAttack', image_name, y_true, mode,
-                               budget, result, oracle_target=ot)
-                append_row(row, csv_path)
-                completed += 1
-
-                if result['success'] and successes >= 0:
-                    successes += 1
-
-            # Check saturation (only if we ran all images fresh)
-            if successes == n_images:
-                saturated[mode] = True
-                print(f"  budget={budget:>5d} | {mode:>14s} | "
-                      f"{successes}/{n_images} SUCCESS — SATURATED, "
-                      f"skipping higher budgets for this mode")
-            elif successes >= 0:
-                print(f"  budget={budget:>5d} | {mode:>14s} | "
-                      f"{successes}/{n_images} success "
-                      f"[{completed}/{total_runs}]")
-            else:
-                print(f"  budget={budget:>5d} | {mode:>14s} | "
-                      f"resumed (saturation check skipped) "
-                      f"[{completed}/{total_runs}]")
+        # 3c. Opportunistic
+        key = ('SquareAttack', image_name, 'opportunistic', str(MAX_BUDGET))
+        if key not in existing_keys:
+            result = run_attack(model, 'SquareAttack', x, y_true_tensor,
+                                'opportunistic', None, MAX_BUDGET, device)
+            row = make_row('SquareAttack', image_name, y_true, 'opportunistic',
+                           MAX_BUDGET, result)
+            append_row(row, csv_path)
+            completed += 1
+            status = 'OK' if result['success'] else 'FAIL'
+            extra = ''
+            if result['switch_iteration'] is not None:
+                extra = (f" (switch@{result['switch_iteration']}, "
+                         f"locked={result['locked_class']})")
+            print(f"[{completed}/{total_runs}] SqAtk opportunistic | "
+                  f"{image_name} | {result['iterations']} iters | "
+                  f"{status}{extra}")
 
     elapsed = time.time() - start_time
     print(f"\n{'='*70}")

@@ -52,11 +52,10 @@ def _setup_style():
 
     # Try LaTeX rendering; fall back silently
     try:
+        from matplotlib.texmanager import TexManager
+        TexManager._run_checked_subprocess(
+            ["latex", "--version"], "latex")
         plt.rcParams["text.usetex"] = True
-        fig_test, ax_test = plt.subplots(figsize=(1, 1))
-        ax_test.set_title("$x$")
-        fig_test.canvas.draw()
-        plt.close(fig_test)
     except Exception:
         plt.rcParams["text.usetex"] = False
 
