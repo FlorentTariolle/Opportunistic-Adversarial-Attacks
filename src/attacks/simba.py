@@ -166,6 +166,7 @@ class SimBA(BaseAttack):
             'max_other_class_id': [],
             'target_class': [],
             'cos_sim_to_ref': [],
+            'cos_sim_iterations': [],
             'switch_iteration': None,  # Iteration when opportunistic mode switched to targeted
             'top_classes': [],  # List of dicts {class_id: confidence} for top 10 classes (opportunistic only)
             'locked_class': None  # Class ID that was locked (opportunistic only)
@@ -263,6 +264,7 @@ class SimBA(BaseAttack):
                             delta = (x_adv - x).flatten()
                             cos = F.cosine_similarity(delta.unsqueeze(0), ref_flat.unsqueeze(0)).item()
                             confidence_history['cos_sim_to_ref'].append(cos)
+                            confidence_history['cos_sim_iterations'].append(iteration + 1)
                         # Track top 10 classes for opportunistic mode (before locking)
                         if opportunistic and not switched_to_targeted:
                             top10_indices = torch.topk(probs_excluding_original, k=10).indices.tolist()

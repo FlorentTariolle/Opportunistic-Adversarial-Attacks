@@ -127,7 +127,7 @@ def run_theta_pipeline(model, x, y_true, oracle_target, budget, device):
     )
     hist_u = attack_u.confidence_history
     untargeted_data = (
-        np.array(hist_u['iterations']),
+        np.array(hist_u['cos_sim_iterations']),
         np.array(hist_u['cos_sim_to_ref']),
     )
 
@@ -150,7 +150,7 @@ def run_theta_pipeline(model, x, y_true, oracle_target, budget, device):
     )
     hist_o = attack_o.confidence_history
     opportunistic_data = (
-        np.array(hist_o['iterations']),
+        np.array(hist_o['cos_sim_iterations']),
         np.array(hist_o['cos_sim_to_ref']),
     )
     switch_iter = hist_o.get('switch_iteration')

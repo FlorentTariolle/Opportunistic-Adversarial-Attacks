@@ -118,6 +118,7 @@ class _OpportunisticSquare(torchattacks.Square):
                 'max_other_class_id': [],
                 'target_class': [],
                 'cos_sim_to_ref': [],
+                'cos_sim_iterations': [],
                 'switch_iteration': None,
                 'top_classes': [],
                 'locked_class': None,
@@ -155,6 +156,7 @@ class _OpportunisticSquare(torchattacks.Square):
                     delta = (x_img - x_orig).flatten()
                     cos = F.cosine_similarity(delta.unsqueeze(0), ref_flat.unsqueeze(0)).item()
                     confidence_history['cos_sim_to_ref'].append(cos)
+                    confidence_history['cos_sim_iterations'].append(iteration)
                 if opportunistic and not switched_to_targeted:
                     top10_idx = torch.topk(probs_excl, k=10).indices.tolist()
                     top10_conf = {idx: probs[0][idx].item() for idx in top10_idx}
