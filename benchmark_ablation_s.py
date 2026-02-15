@@ -35,7 +35,10 @@ MODEL_NAME = 'resnet50'
 SOURCE = 'standard'
 EPSILON = 8 / 255
 METHODS = ['SimBA', 'SquareAttack']
-S_VALUES = [2, 3, 5, 8, 10, 12, 15]
+S_VALUES = {
+    'SimBA': [2, 3, 5, 8, 10],
+    'SquareAttack': [2, 3, 5, 8, 10, 12, 15],
+}
 VAL_DIR = Path('data/imagenet/val')
 RESULTS_DIR = Path('results')
 CSV_PATH = RESULTS_DIR / 'benchmark_ablation_s.csv'
@@ -198,7 +201,7 @@ def main():
     print(f"Model: {MODEL_NAME} ({SOURCE})")
     print(f"Epsilon: {EPSILON:.6f} ({EPSILON * 255:.0f}/255)")
     print(f"Methods: {methods}")
-    print(f"S values: {S_VALUES}")
+    print(f"S values: { {m: S_VALUES[m] for m in methods} }")
     print(f"Images: {args.n_images} (seed={args.image_seed})")
     print(f"Budget: {args.budget}")
     print()
@@ -240,19 +243,19 @@ def main():
     # Build work queue
     jobs = []
     for method in methods:
-        for s_val in S_VALUES:
+        for s_val in S_VALUES[method]:
             for image_name, x, y_true in images:
                 key = (method, str(s_val), image_name)
                 if key not in existing_keys:
                     jobs.append((method, s_val, image_name, x, y_true))
 
-    total_runs = len(methods) * len(S_VALUES) * len(images)
+    total_runs = sum(len(S_VALUES[m]) for m in methods) * len(images)
     completed = total_runs - len(jobs)
     start_time = time.time()
 
     print(f"\n{'='*70}")
     print(f"Running ablation: {len(methods)} methods x "
-          f"{len(S_VALUES)} S values x {len(images)} images")
+          f"{len(images)} images")
     print(f"Total runs: {total_runs} | pending: {len(jobs)}")
     print(f"{'='*70}")
 
