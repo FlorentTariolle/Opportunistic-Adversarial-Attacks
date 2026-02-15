@@ -32,7 +32,7 @@ MODEL_NAME = 'resnet50'
 SOURCE = 'standard'
 EPSILON = 8 / 255
 MAX_BUDGET = 15_000
-STABILITY_THRESHOLD = 5
+STABILITY_THRESHOLD = {'SimBA': 5, 'SquareAttack': 8}
 VAL_DIR = Path('data/imagenet/val')
 RESULTS_DIR = Path('results')
 CSV_PATH = RESULTS_DIR / 'benchmark_winrate.csv'
@@ -180,7 +180,7 @@ def run_attack(model, method, x, y_true_tensor, mode, target_class, budget,
         target_class=target_tensor,
         early_stop=True,
         opportunistic=is_opportunistic,
-        stability_threshold=STABILITY_THRESHOLD,
+        stability_threshold=STABILITY_THRESHOLD[method],
     )
 
     # Extract iteration count
