@@ -128,22 +128,21 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
 
     methods = sorted(df["method"].unique())
-    s_values = sorted(df["s_value"].unique())
     n_methods = len(methods)
 
     print(f"Methods found: {methods}")
-    print(f"S values found: {s_values}")
 
-    # ---- Compute stats per method ----
-    stats = {}  # method -> (success_rates, mean_iters, best_s)
+    # ---- Compute stats per method (each may have different S values) ----
+    stats = {}  # method -> (s_values, success_rates, mean_iters, best_s)
     for method in methods:
         df_m = df[df["method"] == method]
+        s_values = sorted(df_m["s_value"].unique())
         sr, mi = _compute_stats(df_m, s_values)
         best_s = _find_best_s(s_values, sr, mi)
-        stats[method] = (sr, mi, best_s)
+        stats[method] = (s_values, sr, mi, best_s)
 
         label = METHOD_LABELS.get(method, method)
-        print(f"\n{label}:")
+        print(f"\n{label} (S values: {s_values}):")
         for i, s in enumerate(s_values):
             subset = df_m[df_m["s_value"] == s]
             n = len(subset)
@@ -159,7 +158,7 @@ def main():
                              squeeze=False)
 
     for row, method in enumerate(methods):
-        sr, mi, best_s = stats[method]
+        sv, sr, mi, best_s = stats[method]
         color = METHOD_COLORS.get(method, "#6BA353")
         label = METHOD_LABELS.get(method, method)
 
@@ -167,22 +166,22 @@ def main():
         ax_mi = axes[row, 1]
 
         # Success rate
-        ax_sr.plot(s_values, sr, 'o-', color=color, linewidth=1.5,
+        ax_sr.plot(sv, sr, 'o-', color=color, linewidth=1.5,
                    markersize=6)
         ax_sr.axvline(best_s, color='gray', linestyle=':', alpha=0.6)
         ax_sr.set_xlabel("Stability threshold $S$")
         ax_sr.set_ylabel("Success rate")
-        ax_sr.set_xticks(s_values)
+        ax_sr.set_xticks(sv)
         ax_sr.set_ylim(-0.02, 1.02)
         ax_sr.set_title(f"{label} — Success Rate vs $S$")
 
         # Mean iterations
-        ax_mi.plot(s_values, mi, 's-', color=color, linewidth=1.5,
+        ax_mi.plot(sv, mi, 's-', color=color, linewidth=1.5,
                    markersize=6)
         ax_mi.axvline(best_s, color='gray', linestyle=':', alpha=0.6)
         ax_mi.set_xlabel("Stability threshold $S$")
         ax_mi.set_ylabel("Mean iterations (successful)")
-        ax_mi.set_xticks(s_values)
+        ax_mi.set_xticks(sv)
         ax_mi.set_title(f"{label} — Mean Iterations vs $S$")
 
     _savefig(fig, args.outdir, "fig_ablation_s")
