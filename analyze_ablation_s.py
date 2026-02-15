@@ -1,8 +1,10 @@
 """Analyze stability-threshold ablation results.
 
-Reads benchmark_ablation_s.csv and produces a 2-subplot figure:
-  - Success rate vs S
-  - Median iterations to success vs S
+Reads benchmark_ablation_s.csv and produces a 2x2 figure:
+  - Top row: SimBA (success rate vs S, mean iterations vs S)
+  - Bottom row: SquareAttack (same)
+
+Backwards-compatible: if only one method is present, produces 1x2 figure.
 
 Usage:
     python analyze_ablation_s.py                       # Default CSV + output
@@ -56,6 +58,45 @@ def _savefig(fig, outdir: str, name: str):
 
 
 # ===========================================================================
+# Per-method statistics
+# ===========================================================================
+METHOD_COLORS = {
+    "SimBA": "#2176AE",        # blue
+    "SquareAttack": "#E07A30", # orange
+}
+
+METHOD_LABELS = {
+    "SimBA": "SimBA",
+    "SquareAttack": "Square Attack (CE)",
+}
+
+
+def _compute_stats(df_method, s_values):
+    """Compute success rate and mean iterations per S value."""
+    success_rates = []
+    mean_iters = []
+    for s in s_values:
+        subset = df_method[df_method["s_value"] == s]
+        sr = subset["success"].mean() if len(subset) > 0 else 0.0
+        success_rates.append(sr)
+        succ_subset = subset[subset["success"]]
+        avg = succ_subset["iterations"].mean() if len(succ_subset) > 0 else np.nan
+        mean_iters.append(avg)
+    return success_rates, mean_iters
+
+
+def _find_best_s(s_values, success_rates, mean_iters):
+    """Highest success rate, break ties by lowest mean iterations."""
+    return s_values[max(
+        range(len(s_values)),
+        key=lambda i: (
+            success_rates[i],
+            -mean_iters[i] if not np.isnan(mean_iters[i]) else float('inf'),
+        ),
+    )]
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 def main():
@@ -80,57 +121,69 @@ def main():
     )
     df["s_value"] = pd.to_numeric(df["s_value"])
 
+    # Backwards compat: old CSV without 'method' column → assume SimBA
+    if "method" not in df.columns:
+        df["method"] = "SimBA"
+
     os.makedirs(args.outdir, exist_ok=True)
 
+    methods = sorted(df["method"].unique())
     s_values = sorted(df["s_value"].unique())
+    n_methods = len(methods)
+
+    print(f"Methods found: {methods}")
     print(f"S values found: {s_values}")
 
-    success_rates = []
-    median_iters = []
-    for s in s_values:
-        subset = df[df["s_value"] == s]
-        sr = subset["success"].mean()
-        success_rates.append(sr)
-        succ_subset = subset[subset["success"]]
-        med = succ_subset["iterations"].median() if len(succ_subset) > 0 else np.nan
-        median_iters.append(med)
-        n = len(subset)
-        n_succ = len(succ_subset)
-        print(f"  S={s:>2d}: {sr:.1%} success ({n_succ}/{n}), "
-              f"median iters={med:.0f}" if not np.isnan(med) else
-              f"  S={s:>2d}: {sr:.1%} success ({n_succ}/{n}), "
-              f"median iters=N/A")
+    # ---- Compute stats per method ----
+    stats = {}  # method -> (success_rates, mean_iters, best_s)
+    for method in methods:
+        df_m = df[df["method"] == method]
+        sr, mi = _compute_stats(df_m, s_values)
+        best_s = _find_best_s(s_values, sr, mi)
+        stats[method] = (sr, mi, best_s)
 
-    # Find optimal S (highest success rate, break ties by lowest median iters)
-    best_idx = max(range(len(s_values)),
-                   key=lambda i: (success_rates[i],
-                                  -median_iters[i] if not np.isnan(median_iters[i]) else float('inf')))
-    best_s = s_values[best_idx]
-    print(f"\nOptimal S: {best_s} (success={success_rates[best_idx]:.1%}, "
-          f"median iters={median_iters[best_idx]:.0f})")
+        label = METHOD_LABELS.get(method, method)
+        print(f"\n{label}:")
+        for i, s in enumerate(s_values):
+            subset = df_m[df_m["s_value"] == s]
+            n = len(subset)
+            n_succ = int(subset["success"].sum())
+            avg_str = f"{mi[i]:.0f}" if not np.isnan(mi[i]) else "N/A"
+            print(f"  S={s:>2d}: {sr[i]:.1%} success ({n_succ}/{n}), "
+                  f"mean iters={avg_str}")
+        print(f"  Optimal S: {best_s}")
 
-    # ---- Figure ----
-    color = "#6BA353"  # green (opportunistic)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.5))
+    # ---- Figure: n_methods rows x 2 cols ----
+    fig, axes = plt.subplots(n_methods, 2,
+                             figsize=(10, 4.5 * n_methods),
+                             squeeze=False)
 
-    # Success rate
-    ax1.plot(s_values, success_rates, 'o-', color=color, linewidth=1.5,
-             markersize=6)
-    ax1.axvline(best_s, color='gray', linestyle=':', alpha=0.6)
-    ax1.set_xlabel("Stability threshold $S$")
-    ax1.set_ylabel("Success rate")
-    ax1.set_xticks(s_values)
-    ax1.set_ylim(-0.02, 1.02)
-    ax1.set_title("Success Rate vs $S$")
+    for row, method in enumerate(methods):
+        sr, mi, best_s = stats[method]
+        color = METHOD_COLORS.get(method, "#6BA353")
+        label = METHOD_LABELS.get(method, method)
 
-    # Median iterations
-    ax2.plot(s_values, median_iters, 's-', color=color, linewidth=1.5,
-             markersize=6)
-    ax2.axvline(best_s, color='gray', linestyle=':', alpha=0.6)
-    ax2.set_xlabel("Stability threshold $S$")
-    ax2.set_ylabel("Median iterations (successful)")
-    ax2.set_xticks(s_values)
-    ax2.set_title("Median Iterations vs $S$")
+        ax_sr = axes[row, 0]
+        ax_mi = axes[row, 1]
+
+        # Success rate
+        ax_sr.plot(s_values, sr, 'o-', color=color, linewidth=1.5,
+                   markersize=6)
+        ax_sr.axvline(best_s, color='gray', linestyle=':', alpha=0.6)
+        ax_sr.set_xlabel("Stability threshold $S$")
+        ax_sr.set_ylabel("Success rate")
+        ax_sr.set_xticks(s_values)
+        ax_sr.set_ylim(-0.02, 1.02)
+        ax_sr.set_title(f"{label} — Success Rate vs $S$")
+
+        # Mean iterations
+        ax_mi.plot(s_values, mi, 's-', color=color, linewidth=1.5,
+                   markersize=6)
+        ax_mi.axvline(best_s, color='gray', linestyle=':', alpha=0.6)
+        ax_mi.set_xlabel("Stability threshold $S$")
+        ax_mi.set_ylabel("Mean iterations (successful)")
+        ax_mi.set_xticks(s_values)
+        ax_mi.set_title(f"{label} — Mean Iterations vs $S$")
 
     _savefig(fig, args.outdir, "fig_ablation_s")
     if args.show:
