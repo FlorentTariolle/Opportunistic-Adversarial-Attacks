@@ -208,6 +208,7 @@ def compute_cdf(df: pd.DataFrame, budgets: np.ndarray) -> dict:
 def fig_winrate(simba_cdf, sq_cdf, budgets, outdir, show):
     """Combined plot: methods x modes with 90% CI bands."""
     fig, ax = plt.subplots(figsize=(8, 5))
+    single = (simba_cdf is None) != (sq_cdf is None)
 
     for mode in MODE_ORDER:
         color = MODE_COLORS[mode]
@@ -215,18 +216,18 @@ def fig_winrate(simba_cdf, sq_cdf, budgets, outdir, show):
 
         if simba_cdf is not None:
             mean, lo, hi = simba_cdf[mode]
-            ax.plot(budgets, mean,
-                    color=color, linestyle=METHOD_LINESTYLES["SimBA"],
-                    linewidth=1.5,
-                    label=f"{METHOD_LABELS['SimBA']} — {label_mode}")
+            ls = "-" if single else METHOD_LINESTYLES["SimBA"]
+            lbl = label_mode if single else f"{METHOD_LABELS['SimBA']} — {label_mode}"
+            ax.plot(budgets, mean, color=color, linestyle=ls,
+                    linewidth=1.5, label=lbl)
             ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         if sq_cdf is not None:
             mean, lo, hi = sq_cdf[mode]
-            ax.plot(budgets, mean,
-                    color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
-                    linewidth=1.5,
-                    label=f"{METHOD_LABELS['SquareAttack']} — {label_mode}")
+            ls = "-" if single else METHOD_LINESTYLES["SquareAttack"]
+            lbl = label_mode if single else f"{METHOD_LABELS['SquareAttack']} — {label_mode}"
+            ax.plot(budgets, mean, color=color, linestyle=ls,
+                    linewidth=1.5, label=lbl)
             ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
     ax.set_xlabel("Query budget")
@@ -245,25 +246,23 @@ def fig_winrate(simba_cdf, sq_cdf, budgets, outdir, show):
 def fig_winrate_by_mode(simba_cdf, sq_cdf, budgets, outdir, show):
     """3 subplots (one per mode), with 90% CI bands."""
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=True)
+    single = (simba_cdf is None) != (sq_cdf is None)
 
     for ax, mode in zip(axes, MODE_ORDER):
         color = MODE_COLORS[mode]
-        label_mode = MODE_LABELS[mode]
 
         if simba_cdf is not None:
             mean, lo, hi = simba_cdf[mode]
-            ax.plot(budgets, mean,
-                    color=color, linestyle=METHOD_LINESTYLES["SimBA"],
-                    linewidth=1.5,
-                    label=METHOD_LABELS["SimBA"])
+            ls = "-" if single else METHOD_LINESTYLES["SimBA"]
+            ax.plot(budgets, mean, color=color, linestyle=ls,
+                    linewidth=1.5, label=METHOD_LABELS["SimBA"])
             ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         if sq_cdf is not None:
             mean, lo, hi = sq_cdf[mode]
-            ax.plot(budgets, mean,
-                    color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
-                    linewidth=1.5,
-                    label=METHOD_LABELS["SquareAttack"])
+            ls = "-" if single else METHOD_LINESTYLES["SquareAttack"]
+            ax.plot(budgets, mean, color=color, linestyle=ls,
+                    linewidth=1.5, label=METHOD_LABELS["SquareAttack"])
             ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         ax.set_xlabel("Query budget")
