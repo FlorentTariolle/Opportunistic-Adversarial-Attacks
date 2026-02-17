@@ -32,7 +32,7 @@ MODEL_NAME = 'resnet50'
 SOURCE = 'standard'
 EPSILON = 8 / 255
 MAX_BUDGET = 15_000
-STABILITY_THRESHOLD = {'SimBA': 5, 'SquareAttack': 8}
+STABILITY_THRESHOLD = {'SimBA': 10, 'SquareAttack': 8}
 VAL_DIR = Path('data/imagenet/val')
 RESULTS_DIR = Path('results')
 CSV_PATH = RESULTS_DIR / 'benchmark_winrate.csv'
@@ -99,6 +99,50 @@ def load_existing_keys(path: Path) -> set:
         for row in reader:
             keys.add((row['method'], row['image'], row['mode'], row['budget']))
     return keys
+
+
+def import_opportunistic_from_ablation(
+    ablation_csv: Path, winrate_csv: Path, existing_keys: set,
+) -> int:
+    """Import opportunistic rows from ablation CSV where S matches winrate config.
+
+    Maps ablation rows (SimBA S=10, SquareAttack S=8) to winrate format.
+    Returns number of rows imported.
+    """
+    if not ablation_csv.exists():
+        return 0
+    s_map = STABILITY_THRESHOLD  # {'SimBA': 10, 'SquareAttack': 8}
+    imported = 0
+    with open(ablation_csv, 'r', newline='') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            method = row['method']
+            s_val = int(row['s_value'])
+            if s_val != s_map.get(method):
+                continue
+            image = row['image']
+            budget = str(MAX_BUDGET)
+            key = (method, image, 'opportunistic', budget)
+            if key in existing_keys:
+                continue
+            winrate_row = {
+                'method': method,
+                'image': image,
+                'true_label': row['true_label'],
+                'mode': 'opportunistic',
+                'budget': budget,
+                'iterations': row['iterations'],
+                'success': row['success'],
+                'adversarial_class': row['adversarial_class'],
+                'oracle_target': row.get('locked_class', ''),
+                'switch_iteration': row['switch_iteration'],
+                'locked_class': row['locked_class'],
+                'timestamp': row['timestamp'],
+            }
+            append_row(winrate_row, winrate_csv)
+            existing_keys.add(key)
+            imported += 1
+    return imported
 
 
 def lookup_oracle_targets(path: Path) -> dict:
@@ -293,6 +337,14 @@ def main():
         print("Cleared previous results")
 
     existing_keys = load_existing_keys(csv_path)
+
+    # Import opportunistic rows from ablation benchmark
+    ablation_csv = RESULTS_DIR / 'benchmark_ablation_s.csv'
+    imported = import_opportunistic_from_ablation(
+        ablation_csv, csv_path, existing_keys)
+    if imported:
+        print(f"Imported {imported} opportunistic rows from ablation benchmark")
+
     oracle_targets = lookup_oracle_targets(csv_path)
     if existing_keys:
         print(f"Resuming: found {len(existing_keys)} existing results")
