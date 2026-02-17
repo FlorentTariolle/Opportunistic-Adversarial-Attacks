@@ -159,13 +159,18 @@ def lookup_oracle_targets(path: Path) -> dict:
         for row in reader:
             method = row['method']
             image = row['image']
-            # SimBA: oracle target comes from successful untargeted run
-            if method == 'SimBA' and row['mode'] == 'untargeted':
-                success = str(row.get('success', '')).lower() == 'true'
-                if success:
-                    adv_cls = row.get('adversarial_class', '')
-                    if adv_cls and adv_cls != '':
-                        targets[('SimBA', image)] = int(float(adv_cls))
+            # SimBA: oracle from successful untargeted run or oracle_target column
+            if method == 'SimBA' and ('SimBA', image) not in targets:
+                if row['mode'] == 'untargeted':
+                    success = str(row.get('success', '')).lower() == 'true'
+                    if success:
+                        adv_cls = row.get('adversarial_class', '')
+                        if adv_cls and adv_cls != '':
+                            targets[('SimBA', image)] = int(float(adv_cls))
+                if row['mode'] in ('targeted', 'opportunistic'):
+                    ot = row.get('oracle_target', '')
+                    if ot and ot != '':
+                        targets[('SimBA', image)] = int(float(ot))
             # SquareAttack: oracle target stored in oracle_target column
             if method == 'SquareAttack' and row['mode'] == 'oracle_probe':
                 ot = row.get('oracle_target', '')
@@ -407,9 +412,10 @@ def main():
                 # Recover oracle target from cache
                 pass
 
-            # Determine SimBA oracle target
+            # Determine SimBA oracle target (cached from CSV or untargeted run above)
             simba_oracle = oracle_targets.get(('SimBA', image_name))
             if simba_oracle is None:
+                print(f"  [oracle] SimBA {image_name}: running untargeted probe...")
                 simba_oracle = determine_oracle_target(
                     model, 'SimBA', x, y_true_tensor, MAX_BUDGET, device)
                 oracle_targets[('SimBA', image_name)] = simba_oracle
