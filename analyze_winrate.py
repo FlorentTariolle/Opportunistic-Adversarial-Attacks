@@ -206,28 +206,28 @@ def compute_cdf(df: pd.DataFrame, budgets: np.ndarray) -> dict:
 # Figures
 # ===========================================================================
 def fig_winrate(simba_cdf, sq_cdf, budgets, outdir, show):
-    """Combined 6-curve plot: 2 methods x 3 modes with 90% CI bands."""
+    """Combined plot: methods x modes with 90% CI bands."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for mode in MODE_ORDER:
         color = MODE_COLORS[mode]
         label_mode = MODE_LABELS[mode]
 
-        # SimBA (solid)
-        mean, lo, hi = simba_cdf[mode]
-        ax.plot(budgets, mean,
-                color=color, linestyle=METHOD_LINESTYLES["SimBA"],
-                linewidth=1.5,
-                label=f"{METHOD_LABELS['SimBA']} — {label_mode}")
-        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
+        if simba_cdf is not None:
+            mean, lo, hi = simba_cdf[mode]
+            ax.plot(budgets, mean,
+                    color=color, linestyle=METHOD_LINESTYLES["SimBA"],
+                    linewidth=1.5,
+                    label=f"{METHOD_LABELS['SimBA']} — {label_mode}")
+            ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
-        # SquareAttack (dashed)
-        mean, lo, hi = sq_cdf[mode]
-        ax.plot(budgets, mean,
-                color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
-                linewidth=1.5,
-                label=f"{METHOD_LABELS['SquareAttack']} — {label_mode}")
-        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
+        if sq_cdf is not None:
+            mean, lo, hi = sq_cdf[mode]
+            ax.plot(budgets, mean,
+                    color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
+                    linewidth=1.5,
+                    label=f"{METHOD_LABELS['SquareAttack']} — {label_mode}")
+            ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
     ax.set_xlabel("Query budget")
     ax.set_ylabel("Success rate (CDF)")
@@ -243,28 +243,28 @@ def fig_winrate(simba_cdf, sq_cdf, budgets, outdir, show):
 
 
 def fig_winrate_by_mode(simba_cdf, sq_cdf, budgets, outdir, show):
-    """3 subplots (one per mode), 2 curves each, with 90% CI bands."""
+    """3 subplots (one per mode), with 90% CI bands."""
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=True)
 
     for ax, mode in zip(axes, MODE_ORDER):
         color = MODE_COLORS[mode]
         label_mode = MODE_LABELS[mode]
 
-        # SimBA
-        mean, lo, hi = simba_cdf[mode]
-        ax.plot(budgets, mean,
-                color=color, linestyle=METHOD_LINESTYLES["SimBA"],
-                linewidth=1.5,
-                label=METHOD_LABELS["SimBA"])
-        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
+        if simba_cdf is not None:
+            mean, lo, hi = simba_cdf[mode]
+            ax.plot(budgets, mean,
+                    color=color, linestyle=METHOD_LINESTYLES["SimBA"],
+                    linewidth=1.5,
+                    label=METHOD_LABELS["SimBA"])
+            ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
-        # SquareAttack
-        mean, lo, hi = sq_cdf[mode]
-        ax.plot(budgets, mean,
-                color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
-                linewidth=1.5,
-                label=METHOD_LABELS["SquareAttack"])
-        ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
+        if sq_cdf is not None:
+            mean, lo, hi = sq_cdf[mode]
+            ax.plot(budgets, mean,
+                    color=color, linestyle=METHOD_LINESTYLES["SquareAttack"],
+                    linewidth=1.5,
+                    label=METHOD_LABELS["SquareAttack"])
+            ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         ax.set_xlabel("Query budget")
         ax.set_title(label_mode)
@@ -293,6 +293,9 @@ def main():
                         help="Output directory for figures")
     parser.add_argument("--show", action="store_true",
                         help="Show interactive plots")
+    parser.add_argument("--method", choices=["SimBA", "SquareAttack"],
+                        default=None,
+                        help="Plot only one method (default: both)")
     args = parser.parse_args()
 
     _setup_style()
@@ -303,15 +306,16 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
 
     # Split by method (exclude oracle_probe rows)
-    df_simba = df[(df["method"] == "SimBA") & (df["mode"] != "oracle_probe")]
-    df_square = df[
-        (df["method"] == "SquareAttack") & (df["mode"] != "oracle_probe")
-    ]
+    run_simba = args.method in (None, "SimBA")
+    run_square = args.method in (None, "SquareAttack")
 
-    n_simba = df_simba["image"].nunique()
-    n_square = df_square["image"].nunique()
-    print(f"SimBA: {len(df_simba)} rows, {n_simba} images")
-    print(f"SquareAttack: {len(df_square)} rows, {n_square} images")
+    df_simba = df[(df["method"] == "SimBA") & (df["mode"] != "oracle_probe")] if run_simba else pd.DataFrame()
+    df_square = df[(df["method"] == "SquareAttack") & (df["mode"] != "oracle_probe")] if run_square else pd.DataFrame()
+
+    if run_simba:
+        print(f"SimBA: {len(df_simba)} rows, {df_simba['image'].nunique()} images")
+    if run_square:
+        print(f"SquareAttack: {len(df_square)} rows, {df_square['image'].nunique()} images")
 
     # Unified budget axis: 50-step from 50 to BUDGET_CAP
     step = 50
@@ -320,16 +324,18 @@ def main():
     print(f"Budget axis: {budgets[0]}..{budgets[-1]} (step={step}, "
           f"{len(budgets)} points)")
 
-    # Compute bootstrapped CDF for both methods (with 90% CI)
-    simba_cdf = bootstrap_cdf(df_simba, budgets)
-    sq_cdf = bootstrap_cdf(df_square, budgets)
+    # Compute bootstrapped CDF (with 90% CI)
+    simba_cdf = bootstrap_cdf(df_simba, budgets) if run_simba else None
+    sq_cdf = bootstrap_cdf(df_square, budgets) if run_square else None
 
     # Print summary (use bootstrap mean)
     for mode in MODE_ORDER:
-        simba_final = simba_cdf[mode][0][-1] if len(simba_cdf[mode][0]) > 0 else 0
-        sq_final = sq_cdf[mode][0][-1] if len(sq_cdf[mode][0]) > 0 else 0
-        print(f"  {mode:>14s}: SimBA={simba_final:.1%}, "
-              f"SquareAttack={sq_final:.1%} (at {budgets[-1]})")
+        parts = []
+        if simba_cdf:
+            parts.append(f"SimBA={simba_cdf[mode][0][-1]:.1%}")
+        if sq_cdf:
+            parts.append(f"SquareAttack={sq_cdf[mode][0][-1]:.1%}")
+        print(f"  {mode:>14s}: {', '.join(parts)} (at {budgets[-1]})")
 
     # Generate figures
     print(f"\nGenerating figures in {args.outdir}/")
