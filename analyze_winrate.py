@@ -266,7 +266,7 @@ def fig_winrate_by_mode(simba_cdf, sq_cdf, budgets, outdir, show):
             ax.fill_between(budgets, lo, hi, color=color, alpha=0.12)
 
         ax.set_xlabel("Query budget")
-        ax.set_title(label_mode)
+        ax.set_title(MODE_LABELS[mode])
         ax.set_xlim(0, budgets[-1])
         ax.set_ylim(-0.02, 1.02)
         ax.legend(loc="lower right", framealpha=0.9)
