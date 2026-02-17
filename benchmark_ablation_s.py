@@ -36,7 +36,7 @@ SOURCE = 'standard'
 EPSILON = 8 / 255
 METHODS = ['SimBA', 'SquareAttack']
 S_VALUES = {
-    'SimBA': [2, 3, 5, 8, 10],
+    'SimBA': [2, 3, 5, 8, 10, 12, 15],
     'SquareAttack': [2, 3, 5, 8, 10, 12, 15],
 }
 VAL_DIR = Path('data/imagenet/val')
