@@ -6,7 +6,7 @@
 
 Black-box adversarial attacks that minimize only the ground-truth confidence suffer from *latent-space drift*: perturbations wander through the feature space without committing to a specific adversarial class, wasting queries on diffuse, undirected progress. We introduce **Opportunistic Targeting (OT)**, a lightweight wrapper that monitors the rank stability of the leading non-true class during an untargeted attack and dynamically switches to a targeted objective once a stable candidate emerges. OT requires no architectural modification to the underlying attack, no gradient access, and no *a priori* target-class knowledge.
 
-We validate OT on two representative score-based attacks — SimBA and Square Attack (cross-entropy loss) — across four standard ImageNet classifiers. OT consistently matches the performance of an oracle that knows the optimal target class in advance, while substantially outperforming untargeted baselines. Benefits scale with model depth and are confirmed on a 100-image benchmark with bootstrapped confidence intervals: OT closes the gap between untargeted and oracle success rates across the full query-budget range.
+We validate OT on two representative score-based attacks, SimBA and Square Attack (cross-entropy loss), across four standard ImageNet classifiers. OT consistently matches the performance of an oracle that knows the optimal target class in advance, while substantially outperforming untargeted baselines. Benefits scale with model depth and are confirmed on a 100-image benchmark with bootstrapped confidence intervals: OT closes the gap between untargeted and oracle success rates across the full query-budget range.
 
 On adversarially-trained models, OT's stability signal becomes less reliable due to flatter confidence landscapes, which we characterize and discuss.
 
@@ -14,13 +14,13 @@ On adversarially-trained models, OT's stability signal becomes less reliable due
 
 ## 1. Introduction
 
-Standard untargeted black-box attacks operate by minimizing the model's confidence in the ground-truth class. This strategy — whether implemented as probability minimization in SimBA (Guo et al., 2019) or cross-entropy loss in Square Attack (Andriushchenko et al., 2020) — treats all non-true classes as interchangeable. As the ground-truth confidence decreases, the freed probability mass disperses across the remaining classes without directional commitment. The adversarial perturbation effectively executes a random walk through the latent space, crossing class basins opportunistically rather than heading toward a specific decision boundary.
+Standard untargeted black-box attacks operate by minimizing the model's confidence in the ground-truth class. This strategy, whether implemented as probability minimization in SimBA (Guo et al., 2019) or cross-entropy loss in Square Attack (Andriushchenko et al., 2020), treats all non-true classes as interchangeable. As the ground-truth confidence decreases, the freed probability mass disperses across the remaining classes without directional commitment. The adversarial perturbation effectively executes a random walk through the latent space, crossing class basins opportunistically rather than heading toward a specific decision boundary.
 
-This *latent-space drift* is not merely an aesthetic concern; it directly impacts query efficiency. Each query spent exploring a class basin that will ultimately be abandoned is a wasted query. The deeper the model (and hence the higher-dimensional the feature space), the more basins the perturbation must traverse before settling, and the more pronounced the waste becomes. On a 50-layer residual network, an untargeted attack may require twice the queries needed to cross the *same* decision boundary that a targeted attack reaches directly.
+This *latent-space drift* directly impacts query efficiency. Each query spent exploring a class basin that will ultimately be abandoned is a wasted query. The deeper the model (and hence the higher-dimensional the feature space), the more basins the perturbation must traverse before settling, and the more pronounced the waste becomes. On a 50-layer residual network, an untargeted attack may require twice the queries needed to cross the *same* decision boundary that a targeted attack reaches directly.
 
-Targeted attacks eliminate drift by construction: they push toward a fixed adversarial class from the first query. However, they require the attacker to specify a target class *a priori* — information that is generally unavailable in a black-box setting. Choosing a suboptimal target can be worse than having no target at all, because the attack commits its entire budget to reaching a potentially distant or infeasible class.
+Targeted attacks eliminate drift by construction: they push toward a fixed adversarial class from the first query. However, they require the attacker to specify a target class *a priori*, which is generally unavailable in a black-box setting. Choosing a suboptimal target can be worse than having no target at all, because the attack commits its entire budget to reaching a potentially distant or infeasible class.
 
-Margin-based losses (Carlini and Wagner, 2017) offer a partial solution. By optimizing the gap between the ground-truth logit and the highest non-true logit, they implicitly track the nearest decision boundary at every iteration. The Square Attack paper's default loss is of this form, and it provides strong untargeted performance precisely because it encodes dynamic target selection into the loss function itself. However, not all attacks support margin losses. SimBA operates on raw probabilities; other attacks may use cross-entropy for compatibility or simplicity. For these methods, drift remains a first-order efficiency bottleneck.
+Margin-based losses (Carlini and Wagner, 2017) offer a partial solution. By optimizing the gap between the ground-truth logit and the highest non-true logit, they implicitly track the nearest decision boundary at every iteration. The Square Attack paper's default loss is of this form, and it provides strong untargeted performance precisely because it encodes dynamic target selection into the loss function itself. However, not all attacks support margin losses. SimBA operates on raw probabilities; other attacks may use cross-entropy for compatibility or simplicity. For these methods, drift remains the main efficiency bottleneck.
 
 **Opportunistic Targeting** bridges this gap. The key insight is that the information needed to select a good target class is already present in the attack's own trajectory: the class that an untargeted perturbation is naturally drifting toward is, by definition, the class whose decision boundary is most accessible. OT formalizes this observation through a rank-stability heuristic:
 
@@ -50,7 +50,7 @@ The remainder of this paper is organized as follows. Section 2 surveys related w
 
 Score-based (decision-score) attacks assume access to the full output probability vector but not to gradients. SimBA (Guo et al., 2019) iterates over an orthonormal basis (pixel or DCT), accepting perturbations that reduce the true-class probability. It requires only 1.4–1.5 queries per iteration on average and achieves high success rates on standard models. While SimBA could in principle adopt a margin-based acceptance criterion, its original formulation uses only the true-class probability, providing no mechanism for directing perturbations toward a specific adversarial class.
 
-Square Attack (Andriushchenko et al., 2020) uses random square-shaped patches at the vertices of the $L_\infty$ ball, with a schedule that shrinks the patch size as the attack progresses. Its default margin loss $f_{y}(x) - \max_{k \neq y} f_k(x)$ implicitly tracks the nearest decision boundary. When run with cross-entropy loss instead, the margin guidance vanishes and the attack exhibits the same drift behavior as SimBA — making it an ideal testbed for isolating OT's contribution.
+Square Attack (Andriushchenko et al., 2020) uses random square-shaped patches at the vertices of the $L_\infty$ ball, with a schedule that shrinks the patch size as the attack progresses. Its default margin loss $f_{y}(x) - \max_{k \neq y} f_k(x)$ implicitly tracks the nearest decision boundary. When run with cross-entropy loss instead, the margin guidance vanishes and the attack exhibits the same drift behavior as SimBA, making it an ideal testbed for isolating OT's contribution.
 
 ### 2.2 Decision-Based and Transfer Attacks
 
@@ -88,7 +88,7 @@ A targeted attack toward class $t$ optimizes:
 
 $$\mathcal{L}_{\text{targeted}}(x', t) = -P(t | x') \quad \text{(SimBA)} \qquad \text{or} \qquad \mathcal{L}_{\text{targeted}}(x', t) = \log P(t | x') \quad \text{(CE)}$$
 
-Targeting eliminates drift but requires knowing $t$ in advance. An *oracle* target — the class that the unconstrained untargeted attack eventually reaches — provides an upper bound on targeted performance that no real attacker can achieve.
+Targeting eliminates drift but requires knowing $t$ in advance. An *oracle* target, i.e. the class that the unconstrained untargeted attack eventually reaches, provides an upper bound on targeted performance that no real attacker can achieve.
 
 ### 3.4 Opportunistic Targeting Algorithm
 
@@ -118,7 +118,7 @@ Output: adversarial example x'
 
 **Key design choices:**
 
-- **Accepted perturbations only (line 4).** The stability counter increments only when the attack makes progress (reduces the loss). Rejected steps — which contribute no useful signal about the loss landscape — are ignored. This filters out noise from random, unproductive queries.
+- **Accepted perturbations only (line 4).** The stability counter increments only when the attack makes progress (reduces the loss). Rejected steps, which contribute no useful signal about the loss landscape, are ignored. This filters out noise from random, unproductive queries.
 
 - **Consecutive stability (line 8).** The buffer must contain $S$ identical entries *in a row*. A single interruption resets the count. This strict debouncing prevents premature lock-in on volatile classes.
 
@@ -135,7 +135,7 @@ SimBA (Guo et al., 2019) perturbs the image along randomly-sampled orthonormal d
 | Budget | 10,000 queries | Per-image query limit |
 | Acceptance | $P(y\|x') < P(y\|x)$ (untargeted) | Greedy coordinate descent |
 
-In untargeted mode, SimBA's acceptance criterion reduces $P(y|x')$ — a single-class objective that, unlike margin loss, does not track the nearest competitor. Upon lock-in, the criterion switches to increasing $P(t|x')$ where $t$ is the locked target. The perturbation mechanism (basis selection, step size, acceptance rule) is unchanged — only the objective updates.
+In untargeted mode, SimBA's acceptance criterion reduces $P(y|x')$, a single-class objective that, unlike margin loss, does not track the nearest competitor. Upon lock-in, the criterion switches to increasing $P(t|x')$ where $t$ is the locked target. The perturbation mechanism (basis selection, step size, acceptance rule) is unchanged; only the objective updates.
 
 ### 3.6 Integration with Square Attack (Cross-Entropy Loss)
 
@@ -203,11 +203,11 @@ The oracle target is determined by running the untargeted attack first and recor
 
 ### 4.5 Metrics
 
-On standard networks where most attacks succeed, the primary metric is **iterations to success** (lower is better). Following Ughi et al. (2021), we also report **success rate as a function of query budget** (CDF curves), which captures the full distribution of attack difficulty rather than reducing it to a single threshold. On robust networks where most attacks fail, we report **final margin** $= \max(P(y_{\text{true}}) - \max_{k \neq y} P(k), 0)$ (lower is better — closer to the decision boundary).
+On standard networks where most attacks succeed, the primary metric is **iterations to success** (lower is better). Following Ughi et al. (2021), we also report **success rate as a function of query budget** (CDF curves), which captures the full distribution of attack difficulty rather than reducing it to a single threshold. On robust networks where most attacks fail, we report **final margin** $= \max(P(y_{\text{true}}) - \max_{k \neq y} P(k), 0)$ (lower is better, closer to the decision boundary).
 
 ### 4.6 Budget Censoring
 
-All iteration counts are right-censored at the query budget. Failed runs that hit the ceiling represent a *lower bound* on the true cost. This censoring biases *against* OT's reported savings: the true untargeted cost for hard cases may be 2–10× higher, making our savings estimates conservative.
+All iteration counts are right-censored at the query budget. Failed runs that hit the ceiling represent a *lower bound* on the true cost. This censoring biases *against* OT's reported savings: the true untargeted cost for hard cases may be 2 to 10 times higher, making our savings estimates conservative.
 
 ---
 
@@ -215,28 +215,23 @@ All iteration counts are right-censored at the query budget. Failed runs that hi
 
 ### 5.1 Success Rates
 
-| Method | Untargeted | Targeted (oracle) | Opportunistic |
-| -------- | ----------- | ------------------- | --------------- |
-| SimBA | 88.1% | 100% | 100% |
-| Square Attack | 100% | 100% | 100% |
-
-OT matches oracle-targeted success rates for both attacks. SimBA's untargeted mode fails on ~12% of configurations (hard cases on deeper models), while OT rescues all of them. **OT not only converges faster — it also converts untargeted failures into successes.**
+OT matches oracle-targeted success rates for both attacks: 100% for SimBA (vs. 88.1% untargeted) and 100% for Square Attack (vs. 100% untargeted). SimBA's untargeted mode fails on ~12% of configurations (hard cases on deeper models), while OT rescues all of them.
 
 ### 5.2 CDF: Success Rate vs. Query Budget
 
 ![CDF 4-image](results/figures/standard/fig_cdf.png)
 
-**Figure: Cumulative success rate vs. query budget** (4-image benchmark, all models). Solid = SimBA; dashed = Square Attack. Colors distinguish modes (blue = untargeted, red = opportunistic). OT dominates its untargeted baseline across the full budget range.
+**Figure 1: Cumulative success rate vs. query budget** (4-image benchmark, all models). Solid = SimBA; dashed = Square Attack. Colors distinguish modes (blue = untargeted, red = opportunistic). OT dominates its untargeted baseline across the full budget range.
 
 The 100-image CDF benchmark on ResNet-50 (15K budget, 1000-sample bootstrap, 90% CI bands) confirms these findings at scale with tighter confidence intervals.
 
 ![SimBA CDF](results/figures_winrate/fig_winrate_simba.png)
 
-**Figure: SimBA success rate vs. query budget** (ResNet-50, 100 images). OT (green) matches oracle-targeted performance (orange) exactly at 85%, a +32 percentage point gain over untargeted (53%). The curves overlap almost entirely, confirming that OT recovers oracle-level efficiency without knowing the target class.
+**Figure 2: SimBA success rate vs. query budget** (ResNet-50, 100 images). OT (green) matches oracle-targeted performance (orange) exactly at 85%, a +32 percentage point gain over untargeted (53%). The curves overlap almost entirely, confirming that OT recovers oracle-level efficiency without knowing the target class.
 
 ![Square Attack CDF](results/figures_winrate/fig_winrate_squareattack.png)
 
-**Figure: Square Attack (CE) success rate vs. query budget** (ResNet-50, 100 images). OT reaches 98% success, matching oracle (99%) and far exceeding untargeted (85%). The OT and oracle curves are nearly indistinguishable across the full budget range.
+**Figure 3: Square Attack (CE) success rate vs. query budget** (ResNet-50, 100 images). OT reaches 98% success, matching oracle (99%) and far exceeding untargeted (85%). The OT and oracle curves are nearly indistinguishable across the full budget range.
 
 ### 5.3 Mean Iterations to Success
 
@@ -249,28 +244,21 @@ The 100-image CDF benchmark on ResNet-50 (15K budget, 1000-sample bootstrap, 90%
 
 ![Headline bars](results/figures/standard/fig_headline_bars.png)
 
-**Figure: Mean iterations by attack mode** (all models, successful runs only). Error bars show 95% bootstrap CI. Percentage annotations indicate OT savings vs. untargeted.
+**Figure 4: Mean iterations by attack mode** (all models, successful runs only). Error bars show 95% bootstrap CI. Percentage annotations indicate OT savings vs. untargeted.
 
 For SimBA, OT reduces mean iterations by 14.3%, landing within 2% of the oracle. For Square Attack (CE loss), the reduction is 48.3%. The Square Attack numbers are dominated by ResNet-50 (Section 5.4), where drift is most severe.
 
 ![Violin](results/figures/standard/fig_violin.png)
 
-**Figure: Query distribution** (log scale). Untargeted (blue) vs. Opportunistic (red). Dashed lines show medians.
+**Figure 5: Query distribution** (log scale). Untargeted (blue) vs. Opportunistic (red). Dashed lines show medians.
 
-*Median query counts:*
-
-| Method | Untargeted | Opportunistic |
-| -------- | ----------- | --------------- |
-| SimBA | 5,865 | 4,706 |
-| Square Attack | 292 | 280 |
-
-The distribution for Square Attack is bimodal: most runs converge quickly (~1–500 queries), with a long tail of hard cases in the thousands. OT primarily cuts this long tail.
+Median query counts tell the same story: SimBA drops from 5,865 (untargeted) to 4,706 (OT); Square Attack from 292 to 280. The distribution for Square Attack is bimodal: most runs converge quickly (~1–500 queries), with a long tail of hard cases in the thousands. OT primarily cuts this long tail.
 
 ### 5.4 The Depth-Scaling Hypothesis
 
 ![Per-model iterations](results/figures/standard/fig_per_model.png)
 
-**Figure: Iterations by model and mode.** OT's benefit scales with model depth — largest on ResNet-50, negligible on AlexNet.
+**Figure 6: Iterations by model and mode.** OT's benefit scales with model depth: largest on ResNet-50, negligible on AlexNet.
 
 The per-model breakdown reveals that OT's benefit scales with model depth:
 
@@ -285,53 +273,41 @@ The per-model breakdown reveals that OT's benefit scales with model depth:
 | AlexNet | SimBA | 2,044 | 1,775 | 13.2% |
 | AlexNet | Square Attack | 304 | 294 | 3.3% |
 
-†SimBA on ResNet-50 untargeted: only 7/12 runs succeed (5 hit the 10K ceiling). The untargeted mean is computed from successful runs only — the true cost is higher, so 36.6% is a conservative lower bound. OT achieves 12/12 success.
+†SimBA on ResNet-50 untargeted: only 7/12 runs succeed (5 hit the 10K ceiling). The untargeted mean is computed from successful runs only; the true cost is higher, making 36.6% a conservative lower bound. OT achieves 12/12 success.
 
 ![ResNet-50 heatmap](results/figures/standard/fig_resnet50_heatmap.png)
 
-**Figure: ResNet-50 per-image heatmap.** Mean iterations by image and mode. Red = high (hard); yellow = low (easy). OT consistently reduces iterations on hard images (dumbbell, hammer).
+**Figure 7: ResNet-50 per-image heatmap.** Mean iterations by image and mode. Red = high (hard); yellow = low (easy). OT consistently reduces iterations on hard images (dumbbell, hammer).
 
-**ResNet-50 is where OT shines.** We hypothesize this follows from latent space dimensionality: a 50-layer residual network maps inputs into a far higher-dimensional feature space than an 8-layer AlexNet. In this higher-dimensional space, untargeted perturbations experience more class drift — the perturbation wanders through multiple adversarial class basins before settling. OT detects the emerging basin early and locks onto it, eliminating the drift phase.
+The largest gains appear on ResNet-50. We hypothesize this follows from latent space dimensionality: a 50-layer residual network maps inputs into a far higher-dimensional feature space than an 8-layer AlexNet. In this higher-dimensional space, untargeted perturbations experience more class drift, wandering through multiple adversarial class basins before settling. OT detects the emerging basin early and locks onto it, eliminating the drift phase.
 
 ![Difficulty vs savings](results/figures/standard/fig_difficulty_vs_savings.png)
 
-**Figure: Opportunistic savings vs. attack difficulty.** Each point is one (model, method, image, seed) run. Dashed line: linear trend ($r = 0.38$, $p < 0.001$).
+**Figure 8: Opportunistic savings vs. attack difficulty.** Each point is one (model, method, image, seed) run. Dashed line: linear trend ($r = 0.38$, $p < 0.001$).
 
-The difficulty–savings scatter plot supports this hypothesis: there is a statistically significant positive correlation between untargeted difficulty and OT's benefit. **The harder the attack, the more OT helps.** This is the regime that matters for practical adversarial evaluation.
+The difficulty–savings scatter plot supports this hypothesis: there is a statistically significant positive correlation between untargeted difficulty and OT's benefit. The harder the attack, the more OT helps.
 
 ### 5.5 Lock-in Dynamics
 
 ![Lock-in dynamics](results/figures/standard/fig_lockin.png)
 
-**Figure: Lock-in dynamics.** Faded curves show untargeted; vivid curves show opportunistic. Vertical dotted lines mark lock-in and convergence iterations.
+**Figure 9: Lock-in dynamics.** Faded curves show untargeted; vivid curves show opportunistic. Vertical dotted lines mark lock-in and convergence iterations.
 
 The confidence traces illustrate *why* OT works.
 
-**Square Attack on ResNet-50 (hammer.jpg).** Lock-in at iteration 31. OT converges at 2,126 vs. untargeted at 5,621 (62.2% savings). The untargeted trace shows ground-truth confidence declining slowly with the max-other-class confidence near zero — the perturbation spreads probability mass across many classes without committing. OT locks onto class 677 at iteration 31 and drives it upward monotonically, crossing the decision boundary at iteration 2,126.
+**Square Attack on ResNet-50 (hammer.jpg).** Lock-in at iteration 31. OT converges at 2,126 vs. untargeted at 5,621 (62.2% savings). The untargeted trace shows ground-truth confidence declining slowly with the max-other-class confidence near zero. The perturbation spreads probability mass across many classes without committing. OT locks onto class 677 at iteration 31 and drives it upward monotonically, crossing the decision boundary at iteration 2,126.
 
 **SimBA on ResNet-50 (corgi.jpg).** Lock-in at iteration 7 (essentially immediate). OT converges at 3,958 vs. untargeted at 7,075 (44.1% savings). SimBA's greedy coordinate-descent steps produce more consistent class rankings, enabling near-instant lock-in.
 
-**Lock-in timing (all opportunistic runs):**
+Lock-in occurs early: SimBA switches at a mean of 7.0 iterations (median 7, range 6–10), while Square Attack switches at 141.9 (median 113, range 11–542). 88.5% of all opportunistic runs (79/90) trigger the lock-in, and the exploration phase consumes less than 2% of the budget in all cases.
 
-| Method | Mean Switch | Median | Range |
-| -------- | ------------ | -------- | ------- |
-| SimBA | 7.0 | 7 | 6–10 |
-| Square Attack | 141.9 | 113 | 11–542 |
-
-88.5% of all opportunistic runs (79/90) trigger the lock-in. The exploration phase consumes <2% of the budget in all cases.
-
-**Lock-match rate.** Does OT find the "right" target — the class that the untargeted attack would eventually reach?
+**Lock-match rate.** Does OT find the "right" target, i.e. the class that the untargeted attack would eventually reach? SimBA locks the oracle class 83.8% of the time; Square Attack 78.4%.
 
 ![Lock-match rate](results/figures/standard/fig_lock_match.png)
 
-**Figure: Lock-match rate by model.** SimBA consistently locks the oracle class (83.8% overall); Square Attack is lower (78.4%) but still succeeds.
+**Figure 10: Lock-match rate by model.** SimBA consistently locks the oracle class; Square Attack is lower but still effective.
 
-| Method | Lock-Match Rate |
-| -------- | ---------------- |
-| SimBA | 83.8% |
-| Square Attack | 78.4% |
-
-Crucially, mismatch does not imply failure. OT achieves 100% success rate even when locking a different class than untargeted. The heuristic does not need the "correct" class — it only needs *a viable* class.
+Mismatch does not imply failure, however. OT achieves 100% success rate even when locking a different class than untargeted. The heuristic does not need the "correct" class, it only needs *a viable* class.
 
 ---
 
@@ -345,26 +321,21 @@ More precisely, the margin loss decomposes as:
 
 $$\mathcal{L}_{\text{margin}} = f_y(x') - \max_{k \neq y} f_k(x') = \underbrace{f_y(x')}_{\text{push down true class}} - \underbrace{f_t(x')}_{\text{push up competitor}}$$
 
-where $t$ is dynamically reselected at each iteration. OT approximates this by fixing $t$ after the exploration phase. The approximation is tight when the locked class remains the strongest competitor throughout the attack — which the stability check is designed to ensure.
+where $t$ is dynamically reselected at each iteration. OT approximates this by fixing $t$ after the exploration phase. The approximation is tight when the locked class remains the strongest competitor throughout the attack, which the stability check is designed to ensure.
 
 ### 6.2 Empirical Confirmation: CE Loss Ablation
 
-Square Attack with margin loss shows **no benefit** from OT: the margin loss already performs dynamic target tracking at every iteration. When we strip this guidance by switching to CE loss, the untargeted attack degrades dramatically (865 vs. 430 mean iterations), and OT restores near-oracle performance (447 iterations). This confirms that **OT functions as a structural surrogate for margin loss**, providing the directionality that drift-prone losses lack.
-
-| Loss Function | Untargeted | Oracle | OT | OT Benefit |
-| -------------- | ----------- | -------- | ----- | ----------- |
-| Margin (default) | ~430 | ~430 | ~430 | None |
-| Cross-entropy | 865 | 430 | 447 | 48.3% savings |
+Square Attack with margin loss shows **no benefit** from OT: the margin loss already performs dynamic target tracking at every iteration. When we strip this guidance by switching to CE loss, the untargeted attack degrades to 865 mean iterations (vs. 430 for margin), and OT restores near-oracle performance (447 iterations). This confirms that OT functions as a structural surrogate for margin loss, providing the directionality that drift-prone losses lack. The full ablation is reported in Section 7.2.
 
 ### 6.3 Perturbation Alignment (Theta Convergence)
 
-Our analysis here is inspired by the angular convergence framework of Gesny et al. (2024), who track the angle $\theta(i)$ between the current perturbation direction $u(i)$ and the optimal direction $n$ (the decision boundary normal) to characterize how reintroducing gradient information accelerates convergence in decision-based attacks. We adopt the same lens for score-based attacks: we track the cosine similarity between each attack's perturbation $\delta(i) = x'(i) - x$ and the oracle direction $\delta_{\text{oracle}}$ (the perturbation produced by a targeted attack toward the oracle class). If OT acts as a margin surrogate, its perturbation should align more rapidly with $\delta_{\text{oracle}}$ than the untargeted attack's perturbation — just as CGBA's perturbation aligns more rapidly with the boundary normal than SurFree's.
+Our analysis here is inspired by the angular convergence framework of Gesny et al. (2024), who track the angle $\theta(i)$ between the current perturbation direction $u(i)$ and the optimal direction $n$ (the decision boundary normal) to characterize how reintroducing gradient information accelerates convergence in decision-based attacks. We adopt the same lens for score-based attacks: we track the cosine similarity between each attack's perturbation $\delta(i) = x'(i) - x$ and the oracle direction $\delta_{\text{oracle}}$ (the perturbation produced by a targeted attack toward the oracle class). If OT acts as a margin surrogate, its perturbation should align more rapidly with $\delta_{\text{oracle}}$ than the untargeted attack's perturbation, just as CGBA's perturbation aligns more rapidly with the boundary normal than SurFree's.
 
 ![Theta convergence](results/figures_theta/fig_theta.png)
 
-**Figure: Perturbation alignment with oracle direction** (SimBA, ResNet-50, 100 images, 500-iteration budget). Shaded regions show $\pm 1$ standard deviation. The vertical dashed line marks the mean switch iteration.
+**Figure 11: Perturbation alignment with oracle direction** (SimBA, ResNet-50, 100 images, 500-iteration budget). Shaded regions show $\pm 1$ standard deviation. The vertical dashed line marks the mean switch iteration.
 
-The results confirm the margin-surrogate hypothesis. Untargeted perturbations drift quasi-orthogonally to the oracle direction, reaching a terminal cosine similarity of only $0.174 \pm 0.189$ (median $0.190$). Opportunistic perturbations, after switching at a mean iteration of $7.3$ (median $7$, range $6$–$15$), rapidly align with $\delta_{\text{oracle}}$, reaching a terminal similarity of $0.865 \pm 0.192$ (median $0.910$). The alignment gap of $0.692$ demonstrates that OT does not merely select the correct target — it actively redirects the perturbation toward the oracle basin, functioning as a structural surrogate for margin-based directional guidance.
+The results confirm the margin-surrogate hypothesis. Untargeted perturbations drift quasi-orthogonally to the oracle direction, reaching a terminal cosine similarity of only $0.174 \pm 0.189$ (median $0.190$). Opportunistic perturbations, after switching at a mean iteration of $7.3$ (median $7$, range $6$–$15$), rapidly align with $\delta_{\text{oracle}}$, reaching a terminal similarity of $0.865 \pm 0.192$ (median $0.910$). The alignment gap of $0.692$ demonstrates that OT actively redirects the perturbation toward the oracle basin, not just selecting the correct target class.
 
 ---
 
@@ -378,9 +349,9 @@ We sweep $S \in \{2, 3, 5, 8, 10, 12, 15\}$ independently for both attacks on st
 
 ![S ablation](results/figures_ablation_s/fig_ablation_s.png)
 
-**Figure: Stability threshold ablation** — top row: SimBA, bottom row: Square Attack (CE). Left: success rate vs. $S$; right: mean iterations (successful runs) vs. $S$. Dotted lines mark the optimal $S$.
+**Figure 12: Stability threshold ablation.** Top row: SimBA, bottom row: Square Attack (CE). Left: success rate vs. $S$; right: mean iterations (successful runs) vs. $S$. Dotted lines mark the optimal $S$.
 
-**SimBA** ($S \in \{2, \ldots, 15\}$): Success rate is remarkably flat, ranging from 84.0% ($S = 2$) to 85.1% ($S = 10$). Mean iterations are similarly stable ($4{,}814$–$4{,}956$). The optimal threshold is $S^*_{\text{SimBA}} = 10$, though the margin over neighboring values is slim. SimBA's greedy coordinate-descent steps produce stable early-iteration rankings, making the heuristic robust to $S$.
+**SimBA** ($S \in \{2, \ldots, 15\}$): Success rate is nearly flat, ranging from 84.0% ($S = 2$) to 85.1% ($S = 10$). Mean iterations are similarly stable ($4{,}814$–$4{,}956$). The optimal threshold is $S^*_{\text{SimBA}} = 10$, though the margin over neighboring values is slim. SimBA's greedy coordinate-descent steps produce stable early-iteration rankings, making the heuristic robust to $S$.
 
 | $S$ | Success Rate | Mean Iters | Median Iters |
 | ----- | ------------- | ----------- | ------------- |
@@ -404,7 +375,7 @@ We sweep $S \in \{2, 3, 5, 8, 10, 12, 15\}$ independently for both attacks on st
 | 12 | 97.0% | 1,850 | 633 |
 | 15 | 96.0% | 1,910 | 652 |
 
-The optimal thresholds differ: $S^*_{\text{SimBA}} = 10$ vs. $S^*_{\text{Square}} = 8$. This confirms that the stability heuristic should be calibrated per attack. Square Attack's stochastic patch placement produces more volatile early rankings than SimBA's coordinate descent, yet it achieves peak performance at a *lower* $S$ — likely because the larger per-step perturbations cause the correct target class to dominate earlier when it does stabilize.
+The optimal thresholds differ: $S^*_{\text{SimBA}} = 10$ vs. $S^*_{\text{Square}} = 8$. This confirms that the stability heuristic should be calibrated per attack. Square Attack's stochastic patch placement produces more volatile early rankings than SimBA's coordinate descent, yet it achieves peak performance at a *lower* $S$, likely because the larger per-step perturbations cause the correct target class to dominate earlier when it does stabilize.
 
 ### 7.2 Loss Function Ablation (Square Attack)
 
@@ -413,12 +384,12 @@ The CE-loss ablation on Square Attack isolates OT's contribution from the attack
 | Configuration | Mean Iters | Success Rate | Notes |
 | -------------- | ----------- | ------------- | ------- |
 | Margin loss, untargeted | ~430 | 100% | Implicit dynamic targeting via $\max_{k \neq y}$ |
-| Margin loss + OT | ~430 | 100% | No additional benefit — OT is redundant |
+| Margin loss + OT | ~430 | 100% | No additional benefit; OT is redundant |
 | CE loss, untargeted | 865 | 100% | Drift: 2× the queries of margin |
 | CE loss + OT | 447 | 100% | Restores near-margin performance |
 | CE loss, oracle targeted | 430 | 100% | Upper bound |
 
-The pattern is clear: margin loss provides built-in target tracking that makes OT unnecessary. CE loss lacks this tracking, resulting in drift. OT compensates for the missing margin term, restoring efficiency to within 4% of the oracle. This confirms OT as a **general-purpose margin surrogate** applicable to any drift-prone loss.
+Margin loss provides built-in target tracking that makes OT unnecessary. CE loss lacks this tracking, resulting in drift. OT compensates for the missing margin term, restoring efficiency to within 4% of the oracle. This confirms OT as a **general-purpose margin surrogate** applicable to any drift-prone loss.
 
 ---
 
@@ -430,9 +401,9 @@ We extend the evaluation to adversarially-trained ImageNet classifiers from Robu
 
 1. **Stability threshold $S = 10$** (doubled from 5) to account for robust models' flatter confidence landscapes, which produce more volatile early-iteration class rankings.
 
-2. **Metric: final margin** instead of iteration count. On standard networks, most attacks succeed and we compare speed. On robust networks, most attacks fail (overall success rate: 12.5–37.5%), so iteration counts are uninformative. Instead, we report the final margin $= \max(P(y_{\text{true}}) - \max_{k \neq y} P(k), 0)$ — lower is better (closer to misclassification).
+2. **Metric: final margin** instead of iteration count. On standard networks, most attacks succeed and we compare speed. On robust networks, most attacks fail (overall success rate: 12.5–37.5%), so iteration counts are uninformative. Instead, we report the final margin $= \max(P(y_{\text{true}}) - \max_{k \neq y} P(k), 0)$, where lower is better (closer to misclassification).
 
-The query budget of 10,000 matches the standard benchmark. This is likely insufficient for robust models — the Square Attack paper recommends 20,000 queries with random restarts for robust evaluation. Our budget is constrained by compute; the low absolute success rates should be interpreted with this limitation in mind.
+The query budget of 10,000 matches the standard benchmark. This is likely insufficient for robust models; the Square Attack paper recommends 20,000 queries with random restarts for robust evaluation. Our budget is constrained by compute; the low absolute success rates should be interpreted with this limitation in mind.
 
 ### 8.2 Margin Analysis and the Decoy Hypothesis
 
@@ -445,7 +416,7 @@ The query budget of 10,000 matches the standard benchmark. This is likely insuff
 | R50 | SimBA | 0.0% | 0.0% | 0.0% |
 | R50 | Square Attack | 25.0% | 25.0% | **0.0%** |
 
-The final row is the critical finding: **OT causes a success rate regression from 25% to 0% on R50 Square Attack.**
+The final row is the critical finding: OT causes a success rate regression from 25% to 0% on R50 Square Attack.
 
 **Final margins (lower = better):**
 
@@ -458,11 +429,11 @@ The final row is the critical finding: **OT causes a success rate regression fro
 
 ![Robust margins](results/figures/robust/fig_margin_per_model.png)
 
-**Figure: Final margin by model and mode on robust networks** (lower = better attack). Error bars show 95% CI across images and seeds.
+**Figure 13: Final margin by model and mode on robust networks** (lower = better attack). Error bars show 95% CI across images and seeds.
 
 ![Robust margin heatmap](results/figures/robust/fig_margin_heatmap.png)
 
-**Figure: Per-image margin heatmap on robust models.** Green = low margin (near misclassification); red = high margin (attack failed to make progress).
+**Figure 14: Per-image margin heatmap on robust models.** Green = low margin (near misclassification); red = high margin (attack failed to make progress).
 
 **SimBA is mode-invariant on robust models.** Targeting mode has no measurable effect on margin or success rate. SimBA's coordinate-wise perturbations lack the power to exploit directional guidance against adversarial training.
 
@@ -470,7 +441,7 @@ The final row is the critical finding: **OT causes a success rate regression fro
 
 ![Robust lock-match](results/figures/robust/fig_lock_match.png)
 
-**Figure: Lock-match rate on robust models.** On R50, OT never locks the oracle class (0% for both methods), explaining the performance regression. Dashed line shows the ~80% lock-match rate on standard models for comparison.
+**Figure 15: Lock-match rate on robust models.** On R50, OT never locks the oracle class (0% for both methods), explaining the performance regression. Dashed line shows the ~80% lock-match rate on standard models for comparison.
 
 We term this failure mode the **decoy hypothesis**: on robust networks, adversarial training smooths the input loss landscape, creating an environment where multiple competing classes have similar early stability. OT locks onto a *semantically plausible* neighbor class that appears stable early but lies in a shallow adversarial basin:
 
@@ -481,7 +452,7 @@ We term this failure mode the **decoy hypothesis**: on robust networks, adversar
 | hammer.jpg | Hammer (587) | Hatchet (596) | Hatchet / **Tripod (872)** |
 | porsche.jpg | Sports car (817) | Racer (751) | Racer (751) |
 
-The locked classes are not random — they are semantically related neighbors. For dumbbell and porsche, OT correctly identifies the peak adversarial class, but the attack still fails because even correctly-targeted perturbations cannot overcome the defense within budget. The critical failure is on hammer.jpg: OT locks onto hatchet (596), while the untargeted attack naturally drifts to tripod (872) — a different, viable class. OT commits its budget to the wrong basin.
+The locked classes are not random: they are semantically related neighbors. For dumbbell and porsche, OT correctly identifies the peak adversarial class, but the attack still fails because even correctly-targeted perturbations cannot overcome the defense within budget. The critical failure is on hammer.jpg: OT locks onto hatchet (596), while the untargeted attack naturally drifts to tripod (872), a different, viable class. OT commits its budget to the wrong basin.
 
 ### 8.3 Why R18 Survives
 
@@ -505,13 +476,13 @@ We introduced Opportunistic Targeting, a wrapper that adds dynamic target select
 
 1. **Near-oracle efficiency with zero prior knowledge.** On standard ImageNet classifiers, OT lands within 2–4% of an oracle that knows the optimal target class in advance, reducing mean queries by 14% (SimBA) and 48% (Square Attack, CE loss).
 
-2. **Difficulty-scaled benefits.** OT's savings correlate positively with attack difficulty ($r = 0.38$, $p < 0.001$). On ResNet-50 — the deepest and hardest-to-attack model — savings reach 37% (SimBA) and 64% (Square Attack). This is precisely the regime where query efficiency matters most.
+2. **Difficulty-scaled benefits.** OT's savings correlate positively with attack difficulty ($r = 0.38$, $p < 0.001$). On ResNet-50, the deepest and hardest-to-attack model, savings reach 37% (SimBA) and 64% (Square Attack).
 
 3. **Failure rescue.** OT converts SimBA's 88% untargeted success rate to 100%, matching the oracle. Under a fixed query budget, OT expands the set of feasible attacks, not just their speed.
 
 4. **Structural equivalence to margin loss.** The CE-loss ablation on Square Attack confirms that OT functions as a structural surrogate for margin-based losses. When the loss already provides implicit target tracking (margin loss), OT is redundant. When it does not (CE loss, SimBA), OT restores near-optimal directionality.
 
-5. **Characterized failure mode on robust networks.** On adversarially-trained models, flat confidence landscapes produce decoy classes — semantically plausible neighbors that appear stable early but lie in shallow adversarial basins. This causes OT to lock onto suboptimal targets, degrading performance on R50 Square Attack.
+5. **Characterized failure mode on robust networks.** On adversarially-trained models, flat confidence landscapes produce decoy classes, semantically plausible neighbors that appear stable early but lie in shallow adversarial basins. This causes OT to lock onto suboptimal targets, degrading performance on R50 Square Attack.
 
 ### 9.2 Limitations
 
@@ -529,7 +500,7 @@ The 100-image CDF benchmark on ResNet-50 narrows the confidence intervals substa
 
 ### 9.3 Future Directions
 
-1. **Confidence-gated lock-in.** Require not just rank stability but a minimum confidence delta $\Delta_{\min}$ before locking. This would prevent lock-in on flat plateaus where all non-true classes have similar, low probabilities — exactly the regime where decoys arise on robust models.
+1. **Confidence-gated lock-in.** Require not just rank stability but a minimum confidence delta $\Delta_{\min}$ before locking. This would prevent lock-in on flat plateaus where all non-true classes have similar, low probabilities, exactly the regime where decoys arise on robust models.
 
 2. **Fallback with class banning.** If progress stalls after lock-in (loss plateaus for $T$ iterations), release the lock and ban the released class from future targeting. This transforms OT's irreversible commitment into an explore-exploit cycle.
 
@@ -537,7 +508,7 @@ The 100-image CDF benchmark on ResNet-50 narrows the confidence intervals substa
 
 ### 9.4 Conclusion
 
-Opportunistic Targeting demonstrates that the information needed to select an effective adversarial target is already latent in the attack's own trajectory. By monitoring rank stability and committing when a clear candidate emerges, OT eliminates the latent-space drift that plagues probability-minimization and cross-entropy losses — providing a simple, general-purpose bridge between undirected exploration and directed exploitation. On standard models, the bridge is essentially free: the exploration phase is not overhead — every query advances the attack as a normal untargeted step, and the stability monitor simply observes which direction the perturbation is already heading. Once a target emerges, the attack commits and achieves near-oracle efficiency. On robust models, the bridge's foundations become unreliable, pointing toward confidence-aware gating as the next step. The simplicity of the approach — a stability counter and a mode switch, with no architectural or loss-function modifications — makes it immediately applicable to any score-based black-box attack.
+Opportunistic Targeting demonstrates that the information needed to select an effective adversarial target is already latent in the attack's own trajectory. By monitoring rank stability and committing when a clear candidate emerges, OT eliminates the latent-space drift that plagues probability-minimization and cross-entropy losses, providing a simple, general-purpose bridge between undirected exploration and directed exploitation. On standard models, the bridge is essentially free: the exploration phase is not overhead: every query advances the attack as a normal untargeted step, and the stability monitor simply observes which direction the perturbation is already heading. Once a target emerges, the attack commits and achieves near-oracle efficiency. On robust models, the bridge's foundations become unreliable, pointing toward confidence-aware gating as the next step. The simplicity of the approach (a stability counter and a mode switch, with no architectural or loss-function modifications) makes it immediately applicable to any score-based black-box attack.
 
 ---
 
