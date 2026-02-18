@@ -39,14 +39,23 @@ See [`paper_draft.md`](paper_draft.md) for the full paper.
 
 ## Benchmarks
 
-Run the 4-image or 100-image benchmarks:
+**Multi-model benchmark** (`benchmark.py`): evaluates OT across 4 standard ImageNet classifiers (AlexNet, ResNet-18, VGG-16, ResNet-50) and 2 adversarially-trained models, with 3 seeds per configuration.
+
+**ResNet-50 in-depth benchmark** (`benchmark_winrate.py`): 100-image evaluation on ResNet-50 with bootstrapped CDF curves.
+
+**Stability threshold ablation** (`benchmark_ablation_s.py`): sweeps $S \in \{2, 3, 5, 8, 10, 12, 15\}$ on ResNet-50.
+
 ```bash
 python benchmark.py
 python benchmark_winrate.py
+python benchmark_ablation_s.py
 ```
 
 Regenerate figures from benchmark CSVs:
+
 ```bash
 python analyze_benchmark.py
 python analyze_winrate.py
+python analyze_ablation_s.py
+python analyze_theta.py
 ```
