@@ -12,7 +12,7 @@ See [`paper_draft.md`](paper_draft.md) for the full paper.
 
 ## Quick Start
 
-1.  **Install dependencies**
+1. **Install dependencies**
 
     **With GPU (NVIDIA CUDA 12.1):**
 
@@ -26,13 +26,13 @@ See [`paper_draft.md`](paper_draft.md) for the full paper.
     pip install -r requirements-cpu.txt
     ```
 
-2.  **Launch the demonstrator**
+2. **Launch the demonstrator**
 
     ```bash
     python launch_demo.py
     ```
 
-3.  **Access the interface**
+3. **Access the interface**
     Open [http://127.0.0.1:7860](http://127.0.0.1:7860) in your browser.
 
 ---
