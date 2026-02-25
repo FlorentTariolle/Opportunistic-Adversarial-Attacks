@@ -45,12 +45,15 @@ See [`paper_draft.md`](paper_draft.md) for the full paper.
 
 **Stability threshold ablation** (`benchmark_ablation_s.py`): sweeps $S \in \{2, 3, 5, 8, 10, 12, 15\}$ on ResNet-50.
 
+**Robust model stability threshold ablation** (`benchmark_ablation_s_robust.py`): sweeps $S \in \{2, 3, 5, 8, 10, 12, 15\}$ on adversarially-trained ResNet-50.
+
 **Theta convergence** (`benchmark_theta.py`): computes perturbation alignment with oracle direction over 100 images on ResNet-50.
 
 ```bash
 python benchmark.py
 python benchmark_winrate.py
 python benchmark_ablation_s.py
+python benchmark_ablation_s_robust.py
 python benchmark_theta.py
 ```
 
@@ -60,4 +63,5 @@ Regenerate figures from benchmark CSVs:
 python analyze_benchmark.py
 python analyze_winrate.py
 python analyze_ablation_s.py
+python analyze_ablation_s_robust.py
 ```
