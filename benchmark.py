@@ -1,14 +1,22 @@
 """Benchmark script for opportunistic adversarial attacks.
 
-Runs SimBA and SquareAttack (CE loss) across multiple models, images, epsilons,
-and seeds in three modes: untargeted, targeted-oracle, and opportunistic.
+Runs SimBA and SquareAttack (CE loss) across multiple models on ImageNet
+validation images in three modes: untargeted, targeted-oracle, and opportunistic.
 
-Use --source standard|robust to select model family.
+Split by images for parallel execution:
+  --part 1  runs first half of images
+  --part 2  runs second half of images
+
+Usage:
+    python benchmark.py --part 1 --source standard
+    python benchmark.py --part 2 --source standard
+    python benchmark.py --part 1 --n-images 4          # smoke test
+    python benchmark.py --clear --part 1 --source robust
 """
 
 import argparse
-import os
 import csv
+import random
 import time
 from datetime import datetime
 from pathlib import Path
@@ -31,11 +39,13 @@ STANDARD_MODELS = ['resnet18', 'resnet50', 'vgg16', 'alexnet']
 ROBUST_MODELS = ['Salman2020Do_R18', 'Salman2020Do_R50']
 
 EPSILONS = [8 / 255]
-SEEDS = [0, 1, 2]
+SEEDS = [0]
 MAX_ITERATIONS = 10_000
-STABILITY_THRESHOLD = {'standard': 5, 'robust': 10}
-IMAGE_FILES = ['corgi.jpg', 'porsche.jpg', 'dumbbell.jpg', 'hammer.jpg']
-IMAGE_DIR = Path('data')
+STABILITY_THRESHOLD = {
+    'standard': {'SimBA': 10, 'SquareAttack': 8},
+    'robust': {'SimBA': 10, 'SquareAttack': 10},
+}
+VAL_DIR = Path('data/imagenet/val')
 RESULTS_DIR = Path('results')
 
 CSV_COLUMNS = [
@@ -88,6 +98,38 @@ def get_true_label(model, x: torch.Tensor) -> int:
     with torch.no_grad():
         logits = model(x)
         return logits.argmax(dim=1).item()
+
+
+# ===========================================================================
+# Image selection
+# ===========================================================================
+def select_images(val_dir: Path, n: int, seed: int) -> list[Path]:
+    """Select n random images from ImageNet val directory.
+
+    Globs for *.JPEG and *.jpeg files, samples with the given seed,
+    and returns a sorted list for deterministic order.
+    """
+    all_images = sorted(
+        list(val_dir.glob('**/*.JPEG')) + list(val_dir.glob('**/*.jpeg'))
+    )
+    # Deduplicate (case-insensitive filesystems might double-count)
+    seen = set()
+    unique = []
+    for p in all_images:
+        key = str(p).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(p)
+    all_images = unique
+
+    if len(all_images) < n:
+        raise ValueError(
+            f"Found only {len(all_images)} images in {val_dir}, need {n}. "
+            f"Make sure data/imagenet/val/ has ImageFolder structure."
+        )
+    rng = random.Random(seed)
+    selected = rng.sample(all_images, n)
+    return sorted(selected)
 
 
 # ===========================================================================
@@ -259,7 +301,7 @@ def run_targeted_oracle_pipeline(model, method, eps, seed, x, y_true, device,
     Returns updated (completed_count, success_count).
     """
     y_true_tensor = torch.tensor([y_true], device=device)
-    stability_threshold = STABILITY_THRESHOLD[source]
+    stability_threshold = STABILITY_THRESHOLD[source][method]
 
     for mode in ['untargeted', 'targeted', 'opportunistic']:
         # Check if already done (crash recovery)
@@ -446,9 +488,15 @@ def compute_summary_statistics(csv_path: Path):
 # ===========================================================================
 def main():
     parser = argparse.ArgumentParser(description="Run adversarial attack benchmark")
+    parser.add_argument('--part', type=int, required=True, choices=[1, 2],
+                        help="Part 1 = first half of images, Part 2 = second half")
     parser.add_argument('--clear', action='store_true', help="Delete previous CSV results before running")
     parser.add_argument('--source', choices=['standard', 'robust'], default='standard',
                         help="Model source: 'standard' for torchvision, 'robust' for RobustBench")
+    parser.add_argument('--n-images', type=int, default=50,
+                        help="Number of images to use (default: 50)")
+    parser.add_argument('--image-seed', type=int, default=42,
+                        help="Seed for image selection (default: 42)")
     args = parser.parse_args()
 
     source = args.source
@@ -458,13 +506,22 @@ def main():
         models = ROBUST_MODELS
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Select and split images
+    all_images = select_images(VAL_DIR, args.n_images, args.image_seed)
+    half = args.n_images // 2
+    if args.part == 1:
+        image_paths = all_images[:half]
+    else:
+        image_paths = all_images[half:]
+
     print(f"Device: {device}")
     print(f"Source: {source}")
     print(f"Models: {models}")
-    print(f"Images: {IMAGE_FILES}")
+    print(f"Images: {len(image_paths)} (part {args.part} of {args.n_images}, seed={args.image_seed})")
     print(f"Epsilons: {[f'{e:.4f}' for e in EPSILONS]}")
     print(f"Seeds: {SEEDS}")
-    print(f"Stability threshold: {STABILITY_THRESHOLD[source]} ({source})")
+    print(f"Stability threshold: {STABILITY_THRESHOLD[source]}")
     print()
 
     RESULTS_DIR.mkdir(exist_ok=True)
@@ -482,18 +539,19 @@ def main():
         print(f"Resuming: found {len(existing_keys)} existing results")
 
     methods = ['SimBA', 'SquareAttack']
-    total_runs = len(models) * len(IMAGE_FILES) * len(methods) * len(EPSILONS) * len(SEEDS) * 3
-    print(f"Total runs: {total_runs}")
+    total_runs = len(models) * len(image_paths) * len(methods) * len(EPSILONS) * len(SEEDS) * 3
+    print(f"Total runs (this part): {total_runs}")
     print("=" * 80)
 
-    completed_count = len(existing_keys)
-    # Count successes from existing results
+    # Count only results for this part's images
+    part_image_names = {p.name for p in image_paths}
+    completed_count = sum(1 for k in existing_keys if k[4] in part_image_names)
     success_count = 0
     if existing_keys and csv_path.exists():
         with open(csv_path, 'r', newline='') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if row['success'].lower() == 'true':
+                if row['image'] in part_image_names and row['success'].lower() == 'true':
                     success_count += 1
 
     start_time = time.time()
@@ -502,11 +560,10 @@ def main():
         print(f"\nLoading model: {model_name} ({source})...")
         model = load_benchmark_model(model_name, source, device)
 
-        for image_name in IMAGE_FILES:
-            image_path = IMAGE_DIR / image_name
+        for image_path in image_paths:
+            image_name = image_path.name
             if not image_path.exists():
                 print(f"  WARNING: {image_path} not found, skipping")
-                # Still count the skipped runs
                 skipped = len(methods) * len(EPSILONS) * len(SEEDS) * 3
                 completed_count += skipped
                 continue
@@ -527,7 +584,7 @@ def main():
 
     elapsed = time.time() - start_time
     print(f"\n{'=' * 80}")
-    print(f"Benchmark complete in {elapsed:.0f}s")
+    print(f"Part {args.part} complete in {elapsed:.0f}s")
     print(f"Results: {csv_path}")
 
     # Generate summary
