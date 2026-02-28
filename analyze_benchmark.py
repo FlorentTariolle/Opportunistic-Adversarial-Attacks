@@ -107,22 +107,6 @@ def load_data(csv_path: str) -> pd.DataFrame:
     df["adversarial_class"] = pd.to_numeric(df["adversarial_class"], errors="coerce")
     df["mode"] = pd.Categorical(df["mode"], categories=MODE_ORDER, ordered=True)
 
-    # Drop (model, method, image) combos where no mode succeeded at all —
-    # these are "too hard" attacks without saved confidence data to analyse.
-    # Skip this filter when progress metric columns exist (robust benchmarks),
-    # because failed runs still have meaningful confusion/peak metrics.
-    has_progress = "confusion_gain" in df.columns
-    if not has_progress:
-        key = ["model", "method", "image"]
-        any_success = df.groupby(key, observed=True)["success"].transform("any")
-        n_before = len(df)
-        df = df[any_success].reset_index(drop=True)
-        n_dropped = n_before - len(df)
-        if n_dropped:
-            print(f"  Filtered {n_dropped} rows from all-fail (model, method, image) combos")
-    else:
-        print("  Progress metric columns detected — keeping all rows (including all-fail combos)")
-
     return df
 
 
@@ -164,7 +148,7 @@ def _pub_linestyle(method: str) -> str:
 
 def fig_headline_bars(df: pd.DataFrame, outdir: str):
     """Headline bar chart: mean iterations by mode."""
-    ok = df[df["success"]]
+    ok = df
     if ok.empty:
         print("  Skipping fig_headline_bars: no successful runs")
         return None
@@ -209,8 +193,8 @@ def fig_headline_bars(df: pd.DataFrame, outdir: str):
 
     ax.set_xticks(x)
     ax.set_xticklabels(methods)
-    ax.set_ylabel("Mean Iterations to Success")
-    ax.set_title("Mean Iterations by Attack Mode (All Models, Successful Runs)")
+    ax.set_ylabel("Mean Iterations")
+    ax.set_title("Mean Iterations by Attack Mode (All Models, All Runs)")
     ax.legend()
     ax.set_ylim(bottom=0)
     _savefig(fig, outdir, "fig_headline_bars")
@@ -219,7 +203,7 @@ def fig_headline_bars(df: pd.DataFrame, outdir: str):
 
 def fig_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
     """Per-model breakdown: mean iterations by mode."""
-    ok = df[df["success"]]
+    ok = df
     if ok.empty:
         print("  Skipping fig_per_model: no successful runs")
         return None
@@ -277,7 +261,7 @@ def fig_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
 
 def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str, model_order: list[str]):
     """Scatter: untargeted difficulty vs opportunistic savings."""
-    ok = df[df["success"]].copy()
+    ok = df.copy()
     if ok.empty:
         print("  Skipping fig_difficulty_vs_savings: no successful runs")
         return None
@@ -335,7 +319,7 @@ def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str, model_order: list[s
 
 def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
     """Lock-match analysis: does opportunistic lock the same class as untargeted?"""
-    ok = df[df["success"]].copy()
+    ok = df.copy()
     if ok.empty:
         print("  Skipping fig_lock_match: no successful runs")
         return None
@@ -405,57 +389,6 @@ def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
         ha="center", transform=ax.transAxes, fontsize=9, style="italic",
     )
     _savefig(fig, outdir, "fig_lock_match")
-    return fig
-
-
-def fig_model_heatmap(df: pd.DataFrame, outdir: str, case_model: str):
-    """Per-image heatmap for a given model.
-
-    Includes all runs (successful and failed) so that failed attacks show
-    their iteration count (typically max_iterations) rather than n/a.
-    """
-    sub_all = df[df["model"] == case_model]
-    if sub_all.empty:
-        print(f"  Skipping fig_model_heatmap: no {case_model} runs")
-        return None
-
-    methods = [m for m in ["SimBA", "SquareAttack"] if m in sub_all["method"].unique()]
-    fig, axes = plt.subplots(1, len(methods), figsize=(5 * len(methods), 3.5))
-    if len(methods) == 1:
-        axes = [axes]
-
-    for ax, method in zip(axes, methods):
-        sub = sub_all[sub_all["method"] == method]
-        pivot = sub.pivot_table(
-            index="image", columns="mode", values="iterations", aggfunc="mean",
-            observed=True,
-        )
-        pivot = pivot[[m for m in MODE_ORDER if m in pivot.columns]]
-
-        im = ax.imshow(pivot.values, aspect="auto", cmap="YlOrRd")
-        ax.set_xticks(range(len(pivot.columns)))
-        ax.set_xticklabels([MODE_LABELS.get(c, c) for c in pivot.columns], fontsize=9)
-        ax.set_yticks(range(len(pivot.index)))
-        ax.set_yticklabels(pivot.index, fontsize=9)
-        ax.set_title(f"{method}", fontweight="bold")
-
-        valid_vals = pivot.values[~np.isnan(pivot.values)]
-        threshold = valid_vals.mean() if len(valid_vals) else 0
-        for r in range(pivot.shape[0]):
-            for c in range(pivot.shape[1]):
-                val = pivot.values[r, c]
-                if np.isnan(val):
-                    text = "n/a"
-                    text_color = "gray"
-                else:
-                    text = f"{val:.0f}"
-                    text_color = "white" if val > threshold else "black"
-                ax.text(c, r, text, ha="center", va="center", fontsize=9, color=text_color)
-
-        fig.colorbar(im, ax=ax, shrink=0.8, label="Mean Iterations")
-
-    fig.suptitle(f"{case_model} Case Study: Mean Iterations by Image and Mode", fontsize=13)
-    _savefig(fig, outdir, f"fig_{case_model}_heatmap")
     return fig
 
 
@@ -818,7 +751,7 @@ def fig_violin(df: pd.DataFrame, outdir: str):
     import seaborn as sns
 
     ok = df[
-        (df["success"]) & (df["mode"].isin(["untargeted", "opportunistic"]))
+        df["mode"].isin(["untargeted", "opportunistic"])
     ].copy()
     if ok.empty:
         print("  Skipping fig_violin: no successful runs")
@@ -923,7 +856,37 @@ def _replay_attack(method_name, model, x, y_true_tensor, seed, opportunistic, de
     return attack.confidence_history
 
 
-def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda"):
+def _best_ot_image(csv_path: str, model_name: str, method: str) -> tuple[str, int]:
+    """Find the image with the largest OT iteration savings for a given model/method.
+
+    Returns (image_name, seed) for the run with the biggest iter_unt - iter_opp delta.
+    """
+    df = pd.read_csv(csv_path)
+    df["iterations"] = pd.to_numeric(df["iterations"])
+    key = ["model", "method", "epsilon", "seed", "image"]
+    sub = df[df["model"] == model_name]
+    unt = sub[sub["mode"] == "untargeted"][key + ["iterations"]].rename(
+        columns={"iterations": "iter_unt"})
+    opp = sub[sub["mode"] == "opportunistic"][key + ["iterations"]].rename(
+        columns={"iterations": "iter_opp"})
+    merged = unt.merge(opp, on=key, how="inner")
+    merged = merged[merged["method"] == method]
+    merged["delta"] = merged["iter_unt"] - merged["iter_opp"]
+    best = merged.loc[merged["delta"].idxmax()]
+    return best["image"], int(best["seed"])
+
+
+def _resolve_image_path(image_name: str, val_dir: str = "data/imagenet/val") -> Path:
+    """Resolve an image filename to its full path under the ImageFolder structure."""
+    matches = list(Path(val_dir).glob(f"**/{image_name}"))
+    if matches:
+        return matches[0]
+    # Fallback: try data/ directly (old demo images)
+    return Path("data") / image_name
+
+
+def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda",
+               csv_path: str | None = None):
     """Lock-in dynamics case study: side-by-side SquareAttack & SimBA."""
     import torch
     from benchmark import load_benchmark_model, load_benchmark_image, get_true_label
@@ -931,23 +894,25 @@ def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda"):
     device = torch.device(device_str if torch.cuda.is_available() else "cpu")
 
     model_name = CASE_MODELS[source]
+    if csv_path is None:
+        csv_path = f"results/benchmark_{source}.csv"
+
+    # Pick the best showcase images from benchmark data
+    cases = []
+    for method in ["SimBA", "SquareAttack"]:
+        img_name, seed = _best_ot_image(csv_path, model_name, method)
+        img_path = _resolve_image_path(img_name)
+        short = "Square Attack" if method == "SquareAttack" else method
+        cases.append({
+            "method": method,
+            "image": img_path,
+            "seed": seed,
+            "title": f"{short} — {model_name} — {img_name}",
+        })
+        print(f"  Best OT showcase for {method}: {img_name} (seed={seed})")
+
     print(f"  Loading model for replay ({model_name}, {source}) ...")
     model = load_benchmark_model(model_name, source, device)
-
-    cases = [
-        {
-            "method": "SquareAttack",
-            "image": Path("data/hammer.jpg"),
-            "seed": 0,
-            "title": f"Square Attack — {model_name} — hammer.jpg",
-        },
-        {
-            "method": "SimBA",
-            "image": Path("data/corgi.jpg"),
-            "seed": 0,
-            "title": f"SimBA — {model_name} — corgi.jpg",
-        },
-    ]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
 
@@ -1053,7 +1018,7 @@ def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda"):
 # Summary Table
 # ===========================================================================
 def print_summary(df: pd.DataFrame, source: str = "standard"):
-    ok = df[df["success"]]
+    ok = df
     source_label = "Robust Networks" if source == "robust" else "Standard Networks"
     print("\n" + "=" * 80)
     print(f"BENCHMARK SUMMARY — {source_label}")
@@ -1068,7 +1033,7 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
     print(sr_pivot.to_string())
 
     # --- Iteration statistics ---
-    print("\n--- Iteration Statistics (successful runs only) ---")
+    print("\n--- Iteration Statistics (all runs) ---")
     stats_df = (
         ok.groupby(["method", "mode"], observed=True)["iterations"]
         .agg(["mean", "median", "std", "count"])
@@ -1079,7 +1044,7 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
     print(stats_df.to_string(index=False))
 
     # --- Per-model mean iterations ---
-    print("\n--- Per-Model Mean Iterations (successful runs only) ---")
+    print("\n--- Per-Model Mean Iterations (all runs) ---")
     pm = (
         ok.groupby(["model", "method", "mode"], observed=True)["iterations"]
         .mean()
@@ -1178,7 +1143,7 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
 
 def print_paired_tests(df: pd.DataFrame):
     """Wilcoxon signed-rank and paired t-tests: opportunistic vs untargeted."""
-    ok = df[df["success"]].copy()
+    ok = df.copy()
     key_cols = ["model", "method", "epsilon", "seed", "image"]
 
     unt = ok[ok["mode"] == "untargeted"][key_cols + ["iterations"]].rename(
@@ -1284,9 +1249,6 @@ def main():
     print(f"  {len(df)} rows, {df['model'].nunique()} models, "
           f"{df['method'].nunique()} methods, {df['mode'].nunique()} modes")
 
-    case_model = CASE_MODELS[source]
-    has_progress = "confusion_gain" in df.columns
-
     print(f"\n  Source: {source}, models: {model_order}")
 
     if source == "robust":
@@ -1311,8 +1273,6 @@ def main():
         fig_difficulty_vs_savings(df, args.outdir, model_order)
         print("\n--- Lock-Match Analysis ---")
         fig_lock_match(df, args.outdir, model_order)
-        print(f"\n--- {case_model} Heatmap ---")
-        fig_model_heatmap(df, args.outdir, case_model)
 
         print("\n=== Publication Figures ===")
         print("\n--- CDF ---")
@@ -1322,7 +1282,7 @@ def main():
 
         if not args.skip_replay:
             print("\n--- Lock-in Dynamics (live replay) ---")
-            fig_lockin(args.outdir, source=source)
+            fig_lockin(args.outdir, source=source, csv_path=args.csv)
         else:
             print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
 
