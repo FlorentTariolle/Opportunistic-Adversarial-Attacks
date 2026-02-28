@@ -485,144 +485,6 @@ def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
 # Progress Metric Figures (robust benchmarks — uses all runs)
 # ===========================================================================
 
-def fig_margin_per_model(df: pd.DataFrame, outdir: str, model_order: list[str],
-                         test_results=None):
-    """Per-model breakdown: mean final margin by method x mode (all runs).
-
-    margin = 1 - confusion_final = max(P(true) - P(best_other), 0).
-    Lower margin = model more confused = better attack.  Consistent with
-    standard iteration bars where lower = better.
-    """
-    df_m = df.copy()
-    df_m["margin_final"] = 1.0 - df_m["confusion_final"]
-
-    models = [m for m in model_order if m in df_m["model"].unique()]
-    if not models:
-        print("  Skipping fig_margin_per_model: no matching models")
-        return None
-    methods = ["SimBA", "SquareAttack"]
-
-    with plt.rc_context({"figure.constrained_layout.use": False}):
-        fig, axes = plt.subplots(
-            1, len(models), figsize=(4 * len(models), 5), sharey=False,
-        )
-    fig.subplots_adjust(bottom=0.15, top=0.88, wspace=0.3)
-    if len(models) == 1:
-        axes = [axes]
-
-    for ax, model in zip(axes, models):
-        sub = df_m[df_m["model"] == model]
-        agg = sub.groupby(["method", "mode"], observed=True)["margin_final"].agg(["mean"]).reset_index()
-        agg["ci"] = sub.groupby(["method", "mode"], observed=True)["margin_final"].apply(_ci95).values
-
-        x = np.arange(len(methods))
-        width = 0.22
-        for i, mode in enumerate(MODE_ORDER):
-            m_data = agg[agg["mode"] == mode].set_index("method").reindex(methods)
-            ax.bar(
-                x + (i - 1) * width,
-                m_data["mean"],
-                width,
-                yerr=m_data["ci"],
-                capsize=3,
-                color=MODE_COLORS[mode],
-                edgecolor="white",
-                linewidth=0.5,
-            )
-        # Significance brackets
-        if test_results is not None and not test_results.empty:
-            y_data = {}
-            for j2, meth in enumerate(methods):
-                for mode in MODE_ORDER:
-                    row = agg[(agg["method"] == meth) & (agg["mode"] == mode)]
-                    if not row.empty:
-                        y_data[(meth, mode)] = row["mean"].values[0] + row["ci"].values[0]
-            _annotate_sig_brackets(ax, test_results, model, methods, x, width, y_data)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(methods, fontsize=9)
-        ax.set_title(model, fontweight="bold")
-        ax.set_ylim(bottom=0)
-        if ax is axes[0]:
-            ax.set_ylabel("Mean Final Margin")
-
-    handles = [
-        plt.Rectangle((0, 0), 1, 1, color=MODE_COLORS[m]) for m in MODE_ORDER
-    ]
-    fig.legend(
-        handles,
-        [MODE_LABELS[m] for m in MODE_ORDER],
-        loc="lower center",
-        ncol=3,
-        bbox_to_anchor=(0.5, 0.02),
-    )
-    fig.suptitle("Final Margin by Model and Mode (All Runs, Lower = Better Attack)", fontsize=14)
-    _savefig(fig, outdir, "fig_margin_per_model")
-    return fig
-
-
-def fig_margin_heatmap(df: pd.DataFrame, outdir: str, model_order: list[str]):
-    """Per-image margin heatmap for each model (all runs).
-
-    Like fig_model_heatmap but shows margin instead of iterations.
-    Lower margin = better attack (green), higher margin = worse (red).
-    Makes the decoy class problem visible at per-image granularity.
-    """
-    df_m = df.copy()
-    df_m["margin_final"] = 1.0 - df_m["confusion_final"]
-
-    models = [m for m in model_order if m in df_m["model"].unique()]
-    if not models:
-        print("  Skipping fig_margin_heatmap: no matching models")
-        return None
-    methods = [m for m in ["SimBA", "SquareAttack"] if m in df_m["method"].unique()]
-
-    fig, axes = plt.subplots(
-        len(models), len(methods),
-        figsize=(5 * len(methods), 3.5 * len(models)),
-    )
-    if len(models) == 1:
-        axes = [axes]
-    if len(methods) == 1:
-        axes = [[ax] for ax in axes]
-
-    for row, model in enumerate(models):
-        for col, method in enumerate(methods):
-            ax = axes[row][col]
-            sub = df_m[(df_m["model"] == model) & (df_m["method"] == method)]
-            pivot = sub.pivot_table(
-                index="image", columns="mode", values="margin_final",
-                aggfunc="mean", observed=True,
-            )
-            pivot = pivot[[m for m in MODE_ORDER if m in pivot.columns]]
-
-            # Green = low margin (good attack), red = high margin (bad attack)
-            im = ax.imshow(pivot.values, aspect="auto", cmap="RdYlGn_r",
-                           vmin=0, vmax=0.8)
-            ax.set_xticks(range(len(pivot.columns)))
-            ax.set_xticklabels([MODE_LABELS.get(c, c) for c in pivot.columns], fontsize=9)
-            ax.set_yticks(range(len(pivot.index)))
-            ax.set_yticklabels(pivot.index, fontsize=9)
-            ax.set_title(f"{model} / {method}", fontweight="bold", fontsize=10)
-
-            for r in range(pivot.shape[0]):
-                for c in range(pivot.shape[1]):
-                    val = pivot.values[r, c]
-                    if np.isnan(val):
-                        text = "n/a"
-                        text_color = "gray"
-                    else:
-                        text = f"{val:.3f}"
-                        text_color = "white" if val > 0.4 else "black"
-                    ax.text(c, r, text, ha="center", va="center", fontsize=9,
-                            color=text_color, fontweight="bold")
-
-    fig.colorbar(im, ax=axes, shrink=0.6, label="Mean Final Margin (lower = better)")
-    fig.suptitle("Per-Image Final Margin by Model, Method, and Mode", fontsize=13)
-    _savefig(fig, outdir, "fig_margin_heatmap")
-    return fig
-
-
 def fig_lock_match_robust(df: pd.DataFrame, outdir: str, model_order: list[str]):
     """Lock-match rate for robust models: does OT lock onto the same class
     that untargeted naturally reaches?
@@ -1225,19 +1087,6 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
         lm_rate = lm.groupby(["method"])["match"].mean() * 100
         print(lm_rate.round(1).to_string())
 
-    # --- Progress metrics (only when columns exist) ---
-    has_progress = "confusion_gain" in df.columns
-    if has_progress:
-        print("\n--- Progress Metrics (all runs, including failures) ---")
-
-        print("\n  Mean Final Margin by Method x Mode (lower = better attack):")
-        df_margin = df.copy()
-        df_margin["margin_final"] = 1.0 - df_margin["confusion_final"]
-        mg = df_margin.groupby(["method", "mode"], observed=True)["margin_final"].agg(
-            ["mean", "std", "count"]
-        ).round(4)
-        print(mg.to_string())
-
     print("\n" + "=" * 80)
 
 
@@ -1368,30 +1217,6 @@ def print_paired_tests(df: pd.DataFrame, source: str = "standard"):
                   f"{r['sig']:>4}  "
                   f"{r['t_stat']:>7.2f} {r['t_p']:>9.4g} {r['t_p_bonf']:>8.4g}")
 
-    # --- Margin tests (robust only, when confusion_final exists) ---
-    if source == "robust" and "confusion_final" in df.columns:
-        test_margin = compute_paired_tests(
-            df, metric="margin_final", filter_success=False)
-        if not test_margin.empty:
-            label = "\nPaired Tests: Final Margin (all runs, Bonferroni-corrected)"
-            print(f"\n{label}")
-            header = (f"{'Model':<22} {'Method':<14} {'Pair':<20} {'N':>4}  "
-                      f"{'Med A':>7} {'Med B':>7} {'Diff%':>7}  "
-                      f"{'W':>8} {'p(W)':>9} {'p(W)adj':>8} {'Sig':>4}  "
-                      f"{'t':>7} {'p(t)':>9} {'p(t)adj':>8}")
-            print(header)
-            print("-" * len(header))
-            for _, r in test_margin.iterrows():
-                pair_label = f"{r['modeA'][:3]}v{r['modeB'][:3]}"
-                print(f"{r['model']:<22} {r['method']:<14} {pair_label:<20} "
-                      f"{r['N']:>4}  "
-                      f"{r['medA']:>7.3f} {r['medB']:>7.3f} "
-                      f"{r['savings_pct']:>+6.1f}%  "
-                      f"{r['w_stat']:>8.0f} {r['w_p']:>9.4g} "
-                      f"{r['w_p_bonf']:>8.4g} {r['sig']:>4}  "
-                      f"{r['t_stat']:>7.2f} {r['t_p']:>9.4g} "
-                      f"{r['t_p_bonf']:>8.4g}")
-
     return test_iter
 
 
@@ -1448,49 +1273,38 @@ def main():
     # --- Compute statistical tests (used by figures + printed tables) ---
     print("\n=== Statistical Tests ===")
     test_iter = compute_paired_tests(df, metric="iterations", filter_success=True)
-    test_margin = None
-    if source == "robust" and "confusion_final" in df.columns:
-        test_margin = compute_paired_tests(
-            df, metric="margin_final", filter_success=False)
 
-    if source == "robust":
-        # Robust mode: iterations are uninformative (attacks rarely succeed),
-        # so only generate progress-metric figures (confusion gain, peak adv).
-        print("  Robust source — skipping iteration-based figures")
-        print("\n=== Progress Metric Figures ===")
-        print("\n--- Final Margin Per Model ---")
-        fig_margin_per_model(df, args.outdir, model_order,
-                             test_results=test_margin)
-        print("\n--- Margin Heatmap (per-image) ---")
-        fig_margin_heatmap(df, args.outdir, model_order)
-        print("\n--- Lock-Match (decoy analysis) ---")
-        fig_lock_match_robust(df, args.outdir, model_order)
+    # --- Diagnostic Figures (all sources) ---
+    print("\n=== Diagnostic Figures ===")
+    print("\n--- Headline Bars ---")
+    fig_headline_bars(df, args.outdir, test_results=test_iter)
+    print("\n--- Per-Model Breakdown ---")
+    fig_per_model(df, args.outdir, model_order, test_results=test_iter)
+    print("\n--- Difficulty vs Savings ---")
+    fig_difficulty_vs_savings(df, args.outdir, model_order)
+    print("\n--- Lock-Match Analysis ---")
+    fig_lock_match(df, args.outdir, model_order)
+
+    # --- Publication Figures (all sources) ---
+    print("\n=== Publication Figures ===")
+    print("\n--- CDF ---")
+    fig_cdf(df, args.outdir)
+    print("\n--- Violin ---")
+    fig_violin(df, args.outdir)
+
+    if not args.skip_replay:
+        print("\n--- Lock-in Dynamics (live replay) ---")
+        fig_lockin(args.outdir, source=source, csv_path=args.csv)
     else:
-        # Standard mode: full iteration-based diagnostic + publication figures.
-        print("\n=== Diagnostic Figures ===")
-        print("\n--- Headline Bars ---")
-        fig_headline_bars(df, args.outdir, test_results=test_iter)
-        print("\n--- Per-Model Breakdown ---")
-        fig_per_model(df, args.outdir, model_order, test_results=test_iter)
-        print("\n--- Difficulty vs Savings ---")
-        fig_difficulty_vs_savings(df, args.outdir, model_order)
-        print("\n--- Lock-Match Analysis ---")
-        fig_lock_match(df, args.outdir, model_order)
+        print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
 
-        print("\n=== Publication Figures ===")
-        print("\n--- CDF ---")
-        fig_cdf(df, args.outdir)
-        print("\n--- Violin ---")
-        fig_violin(df, args.outdir)
+    print("\n--- Per-Model CDF (bootstrap CI) ---")
+    fig_cdf_per_model(df, args.outdir, model_order)
 
-        if not args.skip_replay:
-            print("\n--- Lock-in Dynamics (live replay) ---")
-            fig_lockin(args.outdir, source=source, csv_path=args.csv)
-        else:
-            print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
-
-        print("\n--- Per-Model CDF (bootstrap CI) ---")
-        fig_cdf_per_model(df, args.outdir, model_order)
+    # --- Robust-only: lock-match decoy analysis ---
+    if source == "robust":
+        print("\n--- Lock-Match Robust (decoy analysis) ---")
+        fig_lock_match_robust(df, args.outdir, model_order)
 
     print("\n--- Paired Statistical Tests ---")
     print_paired_tests(df, source=source)
