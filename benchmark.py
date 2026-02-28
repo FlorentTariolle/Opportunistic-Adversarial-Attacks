@@ -410,6 +410,81 @@ def append_result_to_csv(result: dict, path: Path):
         writer.writerow(result)
 
 
+def import_ablation_robust(csv_path: Path):
+    """Import R50 SquareAttack results from ablation CSV to avoid recomputation.
+
+    Reads benchmark_ablation_s_robust.csv, converts S=10 opportunistic +
+    baseline (untargeted/targeted) rows to benchmark format, and appends
+    to csv_path if not already present.
+    """
+    ablation_path = RESULTS_DIR / 'benchmark_ablation_s_robust.csv'
+    if not ablation_path.exists():
+        print(f"  No ablation CSV at {ablation_path}, skipping import")
+        return
+
+    abl = pd.read_csv(ablation_path)
+
+    # Filter: baselines (NaN s_value) + opportunistic at S=10
+    baselines = abl[abl['s_value'].isna()]
+    opp_s10 = abl[(abl['mode'] == 'opportunistic') & (abl['s_value'] == 10.0)]
+    subset = pd.concat([baselines, opp_s10], ignore_index=True)
+
+    if subset.empty:
+        print("  No ablation rows to import")
+        return
+
+    # Load existing keys to avoid duplicates
+    existing = load_existing_results(csv_path)
+
+    eps_str = f"{EPSILONS[0]:.6f}"
+    imported = 0
+
+    for _, row in subset.iterrows():
+        mode = row['mode']
+        key = ('Salman2020Do_R50', 'SquareAttack', eps_str, '0',
+               row['image'], mode)
+        if key in existing:
+            continue
+
+        s_thresh = 10 if mode == 'opportunistic' else ''
+        margin = row.get('final_margin', '')
+        confusion_final = round(1.0 - float(margin), 6) if margin != '' and pd.notna(margin) else ''
+
+        result = {
+            'model': 'Salman2020Do_R50',
+            'method': 'SquareAttack',
+            'epsilon': eps_str,
+            'seed': 0,
+            'image': row['image'],
+            'mode': mode,
+            'iterations': row['iterations'],
+            'success': row['success'],
+            'adversarial_class': row.get('adversarial_class', ''),
+            'oracle_target': row.get('oracle_target', ''),
+            'switch_iteration': row.get('switch_iteration', ''),
+            'locked_class': row.get('locked_class', ''),
+            'true_conf_final': '',
+            'adv_conf_final': '',
+            'true_conf_initial': '',
+            'max_other_conf_initial': '',
+            'max_other_conf_final': '',
+            'confusion_initial': '',
+            'confusion_final': confusion_final,
+            'confusion_gain': '',
+            'peak_adv_conf': '',
+            'peak_adv_class': '',
+            'peak_adv_iter': '',
+            'stability_threshold': s_thresh,
+            'timestamp': row.get('timestamp', ''),
+        }
+        append_result_to_csv(result, csv_path)
+        existing.add(key)
+        imported += 1
+
+    if imported:
+        print(f"  Imported {imported} R50/SquareAttack rows from ablation CSV")
+
+
 def load_existing_results(path: Path) -> set:
     """Load existing result keys for crash recovery.
 
@@ -533,6 +608,10 @@ def main():
         if summary_path.exists():
             summary_path.unlink()
         print("Cleared previous results")
+
+    # Import ablation results for robust source (avoids recomputing R50/SquareAttack)
+    if source == 'robust':
+        import_ablation_robust(csv_path)
 
     existing_keys = load_existing_results(csv_path)
     if existing_keys:

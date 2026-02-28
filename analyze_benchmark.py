@@ -127,6 +127,71 @@ def _ci95(series):
     return stats.t.ppf(0.975, n - 1) * series.std(ddof=1) / np.sqrt(n)
 
 
+def _annotate_sig_brackets(ax, test_results: pd.DataFrame, model: str | None,
+                           method_list: list[str], x_positions: np.ndarray,
+                           bar_width: float, y_data: dict):
+    """Draw significance brackets between bars on a grouped bar chart.
+
+    Args:
+        ax: Matplotlib axes.
+        test_results: DataFrame from compute_paired_tests().
+        model: Model name to filter tests (None = all models pooled).
+        method_list: Ordered method names matching x_positions.
+        x_positions: X-coordinates of method groups.
+        bar_width: Width of individual bars.
+        y_data: Dict of {(method, mode): bar_height} for bracket positioning.
+    """
+    if test_results is None or test_results.empty:
+        return
+
+    # Mode index within group: untargeted=0, targeted=1, opportunistic=2
+    mode_idx = {"untargeted": 0, "targeted": 1, "opportunistic": 2}
+    # Only draw key comparisons: unt↔opp and unt↔oracle
+    show_pairs = [("untargeted", "opportunistic"), ("untargeted", "targeted")]
+
+    for j, method in enumerate(method_list):
+        if model is not None:
+            sub = test_results[(test_results["model"] == model) &
+                               (test_results["method"] == method)]
+        else:
+            sub = test_results[test_results["method"] == method]
+
+        # Determine max bar height for this method group
+        max_y = max((y_data.get((method, m), 0) for m in MODE_ORDER), default=0)
+        bracket_offset = 0
+
+        for modeA, modeB in show_pairs:
+            row = sub[(sub["modeA"] == modeA) & (sub["modeB"] == modeB)]
+            if row.empty:
+                continue
+            row = row.iloc[0]
+
+            sig = row["sig"]
+            if sig == "ns":
+                continue
+
+            x1 = x_positions[j] + (mode_idx[modeA] - 1) * bar_width
+            x2 = x_positions[j] + (mode_idx[modeB] - 1) * bar_width
+
+            # Stack brackets vertically
+            y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+            h = y_range * 0.03
+            y = max_y + y_range * 0.06 + bracket_offset
+            bracket_offset += y_range * 0.08
+
+            ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y],
+                    lw=0.8, color="0.3")
+            ax.text((x1 + x2) / 2, y + h, sig,
+                    ha="center", va="bottom", fontsize=8, color="0.3")
+
+    # Expand y-limit to fit brackets
+    if bracket_offset > 0:
+        cur_top = ax.get_ylim()[1]
+        needed = max_y + bracket_offset + ax.get_ylim()[1] * 0.08
+        if needed > cur_top:
+            ax.set_ylim(top=needed)
+
+
 def _pub_label(method: str, mode: str) -> str:
     """Legend label for publication 2-mode figures."""
     short = "SimBA" if method == "SimBA" else "Square"
@@ -146,7 +211,7 @@ def _pub_linestyle(method: str) -> str:
 # Diagnostic Figures (3-mode: untargeted / targeted-oracle / opportunistic)
 # ===========================================================================
 
-def fig_headline_bars(df: pd.DataFrame, outdir: str):
+def fig_headline_bars(df: pd.DataFrame, outdir: str, test_results=None):
     """Headline bar chart: mean iterations by mode."""
     ok = df
     if ok.empty:
@@ -191,6 +256,19 @@ def fig_headline_bars(df: pd.DataFrame, outdir: str):
                 color=MODE_COLORS["opportunistic"],
             )
 
+    # Significance brackets (pooled: pair on model+image, one test per method)
+    if test_results is not None and not test_results.empty:
+        y_data = {}
+        for j, method in enumerate(methods):
+            for mode in MODE_ORDER:
+                row = agg[(agg["method"] == method) & (agg["mode"] == mode)]
+                if not row.empty:
+                    y_data[(method, mode)] = row["mean"].values[0] + row["ci"].values[0]
+        pooled_tests = compute_paired_tests(
+            ok, metric="iterations", filter_success=True, pool_models=True)
+        _annotate_sig_brackets(ax, pooled_tests, "_pooled_",
+                               methods, x, width, y_data)
+
     ax.set_xticks(x)
     ax.set_xticklabels(methods)
     ax.set_ylabel("Mean Iterations")
@@ -201,7 +279,8 @@ def fig_headline_bars(df: pd.DataFrame, outdir: str):
     return fig
 
 
-def fig_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
+def fig_per_model(df: pd.DataFrame, outdir: str, model_order: list[str],
+                  test_results=None):
     """Per-model breakdown: mean iterations by mode."""
     ok = df
     if ok.empty:
@@ -237,6 +316,16 @@ def fig_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
                 edgecolor="white",
                 linewidth=0.5,
             )
+        # Significance brackets
+        if test_results is not None and not test_results.empty:
+            y_data = {}
+            for j2, meth in enumerate(methods):
+                for mode in MODE_ORDER:
+                    row = agg[(agg["method"] == meth) & (agg["mode"] == mode)]
+                    if not row.empty:
+                        y_data[(meth, mode)] = row["mean"].values[0] + row["ci"].values[0]
+            _annotate_sig_brackets(ax, test_results, model, methods, x, width, y_data)
+
         ax.set_xticks(x)
         ax.set_xticklabels(methods, fontsize=9)
         ax.set_title(model, fontweight="bold")
@@ -396,7 +485,8 @@ def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
 # Progress Metric Figures (robust benchmarks — uses all runs)
 # ===========================================================================
 
-def fig_margin_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
+def fig_margin_per_model(df: pd.DataFrame, outdir: str, model_order: list[str],
+                         test_results=None):
     """Per-model breakdown: mean final margin by method x mode (all runs).
 
     margin = 1 - confusion_final = max(P(true) - P(best_other), 0).
@@ -439,6 +529,16 @@ def fig_margin_per_model(df: pd.DataFrame, outdir: str, model_order: list[str]):
                 edgecolor="white",
                 linewidth=0.5,
             )
+        # Significance brackets
+        if test_results is not None and not test_results.empty:
+            y_data = {}
+            for j2, meth in enumerate(methods):
+                for mode in MODE_ORDER:
+                    row = agg[(agg["method"] == meth) & (agg["mode"] == mode)]
+                    if not row.empty:
+                        y_data[(meth, mode)] = row["mean"].values[0] + row["ci"].values[0]
+            _annotate_sig_brackets(ax, test_results, model, methods, x, width, y_data)
+
         ax.set_xticks(x)
         ax.set_xticklabels(methods, fontsize=9)
         ax.set_title(model, fontweight="bold")
@@ -1141,64 +1241,158 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
     print("\n" + "=" * 80)
 
 
-def print_paired_tests(df: pd.DataFrame):
-    """Wilcoxon signed-rank and paired t-tests: opportunistic vs untargeted."""
-    ok = df.copy()
+def _sig_stars(p):
+    """Significance stars from p-value."""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return "ns"
+
+
+def compute_paired_tests(df: pd.DataFrame, metric: str = "iterations",
+                         filter_success: bool = True,
+                         pool_models: bool = False) -> pd.DataFrame:
+    """Compute paired Wilcoxon + t-tests for all 3 mode pairs.
+
+    Args:
+        df: Benchmark DataFrame.
+        metric: Column to compare ("iterations" or "margin_final").
+        filter_success: If True, only include images where both modes succeeded.
+        pool_models: If True, pool all models into one test per method × pair.
+
+    Returns:
+        DataFrame with one row per (model, method, modeA, modeB) test.
+    """
+    work = df.copy()
+    if metric == "margin_final" and "margin_final" not in work.columns:
+        work["margin_final"] = 1.0 - work["confusion_final"]
+
     key_cols = ["model", "method", "epsilon", "seed", "image"]
+    pairs = [
+        ("untargeted", "opportunistic"),
+        ("untargeted", "targeted"),
+        ("opportunistic", "targeted"),
+    ]
 
-    unt = ok[ok["mode"] == "untargeted"][key_cols + ["iterations"]].rename(
-        columns={"iterations": "iter_unt"})
-    opp = ok[ok["mode"] == "opportunistic"][key_cols + ["iterations"]].rename(
-        columns={"iterations": "iter_opp"})
-    merged = unt.merge(opp, on=key_cols, how="inner")
+    if pool_models:
+        model_groups = ["_pooled_"]
+    else:
+        model_groups = list(work["model"].unique())
 
-    if merged.empty:
-        print("  No paired successful runs for statistical tests")
-        return
+    rows = []
+    for model in model_groups:
+        for method in work["method"].unique():
+            for modeA, modeB in pairs:
+                if pool_models:
+                    a = work[(work["method"] == method) & (work["mode"] == modeA)]
+                    b = work[(work["method"] == method) & (work["mode"] == modeB)]
+                else:
+                    a = work[(work["model"] == model) & (work["method"] == method)
+                             & (work["mode"] == modeA)]
+                    b = work[(work["model"] == model) & (work["method"] == method)
+                             & (work["mode"] == modeB)]
+                if a.empty or b.empty:
+                    continue
 
-    def _stars(p):
-        if p < 0.001:
-            return "***"
-        if p < 0.01:
-            return "**"
-        if p < 0.05:
-            return "*"
-        return "ns"
+                a_df = a[key_cols + [metric, "success"]].rename(
+                    columns={metric: "val_a", "success": "suc_a"})
+                b_df = b[key_cols + [metric, "success"]].rename(
+                    columns={metric: "val_b", "success": "suc_b"})
+                merged = a_df.merge(b_df, on=key_cols, how="inner")
 
-    header = (f"{'Model':<22} {'Method':<14} {'N':>5}  "
-              f"{'Med OT':>7} {'Med Unt':>8} {'Savings%':>9}  "
-              f"{'W-stat':>9} {'p(Wilcox)':>10} {'Sig':>4}  "
-              f"{'t-stat':>8} {'p(t-test)':>10}")
-    print(header)
-    print("-" * len(header))
+                if filter_success:
+                    merged = merged[merged["suc_a"] & merged["suc_b"]]
 
-    for model in merged["model"].unique():
-        for method in ["SimBA", "SquareAttack"]:
-            sub = merged[(merged["model"] == model) & (merged["method"] == method)]
-            if len(sub) < 2:
-                continue
-            iter_unt = sub["iter_unt"].values
-            iter_opp = sub["iter_opp"].values
+                if len(merged) < 2:
+                    continue
 
-            med_opp = np.median(iter_opp)
-            med_unt = np.median(iter_unt)
-            savings = (med_unt - med_opp) / med_unt * 100
+                va = merged["val_a"].values
+                vb = merged["val_b"].values
+                med_a = np.median(va)
+                med_b = np.median(vb)
+                savings = (med_a - med_b) / med_a * 100 if med_a != 0 else 0.0
 
-            # Wilcoxon signed-rank test
-            try:
-                w_stat, w_p = stats.wilcoxon(iter_unt, iter_opp,
-                                             alternative="two-sided")
-            except ValueError:
-                # All differences are zero
-                w_stat, w_p = 0.0, 1.0
+                try:
+                    w_stat, w_p = stats.wilcoxon(va, vb, alternative="two-sided")
+                except ValueError:
+                    w_stat, w_p = 0.0, 1.0
 
-            # Paired t-test
-            t_stat, t_p = stats.ttest_rel(iter_unt, iter_opp)
+                t_stat, t_p = stats.ttest_rel(va, vb)
 
-            print(f"{model:<22} {method:<14} {len(sub):>5}  "
-                  f"{med_opp:>7.0f} {med_unt:>8.0f} {savings:>+8.1f}%  "
-                  f"{w_stat:>9.0f} {w_p:>10.4g} {_stars(w_p):>4}  "
-                  f"{t_stat:>8.2f} {t_p:>10.4g}")
+                rows.append({
+                    "model": model, "method": method,
+                    "modeA": modeA, "modeB": modeB,
+                    "N": len(merged),
+                    "medA": med_a, "medB": med_b, "savings_pct": savings,
+                    "w_stat": w_stat, "w_p": w_p,
+                    "t_stat": t_stat, "t_p": t_p,
+                })
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows)
+
+    # Bonferroni correction
+    n_tests = len(result)
+    result["w_p_bonf"] = (result["w_p"] * n_tests).clip(upper=1.0)
+    result["t_p_bonf"] = (result["t_p"] * n_tests).clip(upper=1.0)
+    result["sig"] = result["w_p_bonf"].apply(_sig_stars)
+
+    return result
+
+
+def print_paired_tests(df: pd.DataFrame, source: str = "standard"):
+    """Print formatted tables of all paired statistical tests."""
+
+    # --- Iteration tests ---
+    test_iter = compute_paired_tests(df, metric="iterations", filter_success=True)
+    if not test_iter.empty:
+        label = "Paired Tests: Iterations (successful runs, Bonferroni-corrected)"
+        print(f"\n{label}")
+        header = (f"{'Model':<22} {'Method':<14} {'Pair':<20} {'N':>4}  "
+                  f"{'Med A':>7} {'Med B':>7} {'Sav%':>7}  "
+                  f"{'W':>8} {'p(W)':>9} {'p(W)adj':>8} {'Sig':>4}  "
+                  f"{'t':>7} {'p(t)':>9} {'p(t)adj':>8}")
+        print(header)
+        print("-" * len(header))
+        for _, r in test_iter.iterrows():
+            pair_label = f"{r['modeA'][:3]}v{r['modeB'][:3]}"
+            print(f"{r['model']:<22} {r['method']:<14} {pair_label:<20} "
+                  f"{r['N']:>4}  "
+                  f"{r['medA']:>7.0f} {r['medB']:>7.0f} {r['savings_pct']:>+6.1f}%  "
+                  f"{r['w_stat']:>8.0f} {r['w_p']:>9.4g} {r['w_p_bonf']:>8.4g} "
+                  f"{r['sig']:>4}  "
+                  f"{r['t_stat']:>7.2f} {r['t_p']:>9.4g} {r['t_p_bonf']:>8.4g}")
+
+    # --- Margin tests (robust only, when confusion_final exists) ---
+    if source == "robust" and "confusion_final" in df.columns:
+        test_margin = compute_paired_tests(
+            df, metric="margin_final", filter_success=False)
+        if not test_margin.empty:
+            label = "\nPaired Tests: Final Margin (all runs, Bonferroni-corrected)"
+            print(f"\n{label}")
+            header = (f"{'Model':<22} {'Method':<14} {'Pair':<20} {'N':>4}  "
+                      f"{'Med A':>7} {'Med B':>7} {'Diff%':>7}  "
+                      f"{'W':>8} {'p(W)':>9} {'p(W)adj':>8} {'Sig':>4}  "
+                      f"{'t':>7} {'p(t)':>9} {'p(t)adj':>8}")
+            print(header)
+            print("-" * len(header))
+            for _, r in test_margin.iterrows():
+                pair_label = f"{r['modeA'][:3]}v{r['modeB'][:3]}"
+                print(f"{r['model']:<22} {r['method']:<14} {pair_label:<20} "
+                      f"{r['N']:>4}  "
+                      f"{r['medA']:>7.3f} {r['medB']:>7.3f} "
+                      f"{r['savings_pct']:>+6.1f}%  "
+                      f"{r['w_stat']:>8.0f} {r['w_p']:>9.4g} "
+                      f"{r['w_p_bonf']:>8.4g} {r['sig']:>4}  "
+                      f"{r['t_stat']:>7.2f} {r['t_p']:>9.4g} "
+                      f"{r['t_p_bonf']:>8.4g}")
+
+    return test_iter
 
 
 # ===========================================================================
@@ -1251,13 +1445,22 @@ def main():
 
     print(f"\n  Source: {source}, models: {model_order}")
 
+    # --- Compute statistical tests (used by figures + printed tables) ---
+    print("\n=== Statistical Tests ===")
+    test_iter = compute_paired_tests(df, metric="iterations", filter_success=True)
+    test_margin = None
+    if source == "robust" and "confusion_final" in df.columns:
+        test_margin = compute_paired_tests(
+            df, metric="margin_final", filter_success=False)
+
     if source == "robust":
         # Robust mode: iterations are uninformative (attacks rarely succeed),
         # so only generate progress-metric figures (confusion gain, peak adv).
         print("  Robust source — skipping iteration-based figures")
         print("\n=== Progress Metric Figures ===")
         print("\n--- Final Margin Per Model ---")
-        fig_margin_per_model(df, args.outdir, model_order)
+        fig_margin_per_model(df, args.outdir, model_order,
+                             test_results=test_margin)
         print("\n--- Margin Heatmap (per-image) ---")
         fig_margin_heatmap(df, args.outdir, model_order)
         print("\n--- Lock-Match (decoy analysis) ---")
@@ -1266,9 +1469,9 @@ def main():
         # Standard mode: full iteration-based diagnostic + publication figures.
         print("\n=== Diagnostic Figures ===")
         print("\n--- Headline Bars ---")
-        fig_headline_bars(df, args.outdir)
+        fig_headline_bars(df, args.outdir, test_results=test_iter)
         print("\n--- Per-Model Breakdown ---")
-        fig_per_model(df, args.outdir, model_order)
+        fig_per_model(df, args.outdir, model_order, test_results=test_iter)
         print("\n--- Difficulty vs Savings ---")
         fig_difficulty_vs_savings(df, args.outdir, model_order)
         print("\n--- Lock-Match Analysis ---")
@@ -1289,8 +1492,8 @@ def main():
         print("\n--- Per-Model CDF (bootstrap CI) ---")
         fig_cdf_per_model(df, args.outdir, model_order)
 
-        print("\n--- Paired Statistical Tests ---")
-        print_paired_tests(df)
+    print("\n--- Paired Statistical Tests ---")
+    print_paired_tests(df, source=source)
 
     print_summary(df, source=source)
 
