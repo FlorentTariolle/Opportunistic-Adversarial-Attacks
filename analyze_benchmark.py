@@ -743,6 +743,76 @@ def fig_cdf(df: pd.DataFrame, outdir: str):
     return fig
 
 
+def fig_cdf_per_model(df: pd.DataFrame, outdir: str, model_order: list[str],
+                      n_bootstrap: int = 1000):
+    """Per-model CDF curves with bootstrap 90% CI bands.
+
+    Layout: len(model_order) rows × 2 columns (one per method).
+    Each subplot has 3 curves (untargeted, targeted, opportunistic).
+    """
+    methods = ["SimBA", "SquareAttack"]
+    models = [m for m in model_order if m in df["model"].unique()]
+    nrows, ncols = len(models), len(methods)
+
+    budgets = np.arange(50, 10_001, 50)  # 200 points
+    rng = np.random.RandomState(0)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 3.5 * nrows),
+                             sharex=True, sharey=True)
+    if nrows == 1:
+        axes = axes[np.newaxis, :]
+
+    for row, model in enumerate(models):
+        for col, method in enumerate(methods):
+            ax = axes[row, col]
+            subset = df[(df["model"] == model) & (df["method"] == method)]
+
+            for mode in MODE_ORDER:
+                mode_df = subset[subset["mode"] == mode]
+                image_names = mode_df["image"].unique()
+                n_images = len(image_names)
+                if n_images == 0:
+                    continue
+
+                # Pre-compute per-image success iteration (NaN if failed)
+                img_iter = {}
+                for name in image_names:
+                    r = mode_df[mode_df["image"] == name].iloc[0]
+                    img_iter[name] = r["iterations"] if r["success"] else np.nan
+
+                # Bootstrap CDFs
+                all_cdfs = np.empty((n_bootstrap, len(budgets)))
+                for b in range(n_bootstrap):
+                    sample = rng.choice(image_names, size=n_images, replace=True)
+                    iters = np.array([img_iter[n] for n in sample])
+                    success_iters = np.sort(iters[~np.isnan(iters)])
+                    counts = np.searchsorted(success_iters, budgets, side="right")
+                    all_cdfs[b] = counts / n_images
+
+                cdf_mean = all_cdfs.mean(axis=0)
+                ci_lo = np.percentile(all_cdfs, 5, axis=0)
+                ci_hi = np.percentile(all_cdfs, 95, axis=0)
+
+                color = MODE_COLORS[mode]
+                ax.plot(budgets, cdf_mean, color=color, linewidth=1.5,
+                        label=MODE_LABELS[mode])
+                ax.fill_between(budgets, ci_lo, ci_hi, color=color, alpha=0.12)
+
+            ax.set_ylim(-0.02, 1.02)
+            ax.set_xlim(budgets[0], budgets[-1])
+            if row == nrows - 1:
+                ax.set_xlabel("Query Budget")
+            if col == 0:
+                ax.set_ylabel("Success Rate")
+            ax.set_title(f"{model} — {method}", fontsize=11, fontweight="bold")
+            if row == 0 and col == ncols - 1:
+                ax.legend(loc="lower right", fontsize=8)
+
+    fig.suptitle("Per-Model CDF with Bootstrap 90% CI", fontsize=14, y=1.01)
+    _savefig(fig, outdir, "fig_cdf_per_model")
+    return fig
+
+
 def fig_violin(df: pd.DataFrame, outdir: str):
     """Split violin plot of query counts for successful attacks."""
     import seaborn as sns
@@ -1106,6 +1176,66 @@ def print_summary(df: pd.DataFrame, source: str = "standard"):
     print("\n" + "=" * 80)
 
 
+def print_paired_tests(df: pd.DataFrame):
+    """Wilcoxon signed-rank and paired t-tests: opportunistic vs untargeted."""
+    ok = df[df["success"]].copy()
+    key_cols = ["model", "method", "epsilon", "seed", "image"]
+
+    unt = ok[ok["mode"] == "untargeted"][key_cols + ["iterations"]].rename(
+        columns={"iterations": "iter_unt"})
+    opp = ok[ok["mode"] == "opportunistic"][key_cols + ["iterations"]].rename(
+        columns={"iterations": "iter_opp"})
+    merged = unt.merge(opp, on=key_cols, how="inner")
+
+    if merged.empty:
+        print("  No paired successful runs for statistical tests")
+        return
+
+    def _stars(p):
+        if p < 0.001:
+            return "***"
+        if p < 0.01:
+            return "**"
+        if p < 0.05:
+            return "*"
+        return "ns"
+
+    header = (f"{'Model':<22} {'Method':<14} {'N':>5}  "
+              f"{'Med OT':>7} {'Med Unt':>8} {'Savings%':>9}  "
+              f"{'W-stat':>9} {'p(Wilcox)':>10} {'Sig':>4}  "
+              f"{'t-stat':>8} {'p(t-test)':>10}")
+    print(header)
+    print("-" * len(header))
+
+    for model in merged["model"].unique():
+        for method in ["SimBA", "SquareAttack"]:
+            sub = merged[(merged["model"] == model) & (merged["method"] == method)]
+            if len(sub) < 2:
+                continue
+            iter_unt = sub["iter_unt"].values
+            iter_opp = sub["iter_opp"].values
+
+            med_opp = np.median(iter_opp)
+            med_unt = np.median(iter_unt)
+            savings = (med_unt - med_opp) / med_unt * 100
+
+            # Wilcoxon signed-rank test
+            try:
+                w_stat, w_p = stats.wilcoxon(iter_unt, iter_opp,
+                                             alternative="two-sided")
+            except ValueError:
+                # All differences are zero
+                w_stat, w_p = 0.0, 1.0
+
+            # Paired t-test
+            t_stat, t_p = stats.ttest_rel(iter_unt, iter_opp)
+
+            print(f"{model:<22} {method:<14} {len(sub):>5}  "
+                  f"{med_opp:>7.0f} {med_unt:>8.0f} {savings:>+8.1f}%  "
+                  f"{w_stat:>9.0f} {w_p:>10.4g} {_stars(w_p):>4}  "
+                  f"{t_stat:>8.2f} {t_p:>10.4g}")
+
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -1159,10 +1289,10 @@ def main():
 
     print(f"\n  Source: {source}, models: {model_order}")
 
-    if has_progress:
+    if source == "robust":
         # Robust mode: iterations are uninformative (attacks rarely succeed),
         # so only generate progress-metric figures (confusion gain, peak adv).
-        print("  Robust data detected — skipping iteration-based figures")
+        print("  Robust source — skipping iteration-based figures")
         print("\n=== Progress Metric Figures ===")
         print("\n--- Final Margin Per Model ---")
         fig_margin_per_model(df, args.outdir, model_order)
@@ -1195,6 +1325,12 @@ def main():
             fig_lockin(args.outdir, source=source)
         else:
             print("\n--- Lock-in Dynamics: Skipped (--skip-replay) ---")
+
+        print("\n--- Per-Model CDF (bootstrap CI) ---")
+        fig_cdf_per_model(df, args.outdir, model_order)
+
+        print("\n--- Paired Statistical Tests ---")
+        print_paired_tests(df)
 
     print_summary(df, source=source)
 
