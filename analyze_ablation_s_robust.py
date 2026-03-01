@@ -98,29 +98,6 @@ def _compute_opp_stats(df_opp, s_values):
     return success_rates, mean_iters
 
 
-def _compute_margins(df_mode, s_values=None):
-    """Compute mean final margin (overall and failed-only).
-
-    If *s_values* is given, return one value per S; otherwise a single scalar.
-    """
-    def _stats(sub):
-        mean_all = sub["final_margin"].mean() if len(sub) > 0 else np.nan
-        failed = sub[~sub["success"]]
-        mean_fail = failed["final_margin"].mean() if len(failed) > 0 else np.nan
-        return mean_all, mean_fail
-
-    if s_values is None:
-        return _stats(df_mode)
-
-    all_margins, fail_margins = [], []
-    for s in s_values:
-        subset = df_mode[df_mode["s_value"] == s]
-        ma, mf = _stats(subset)
-        all_margins.append(ma)
-        fail_margins.append(mf)
-    return all_margins, fail_margins
-
-
 def _find_best_s(s_values, success_rates, mean_iters):
     """Highest success rate, break ties by lowest mean iterations."""
     return s_values[max(
@@ -249,55 +226,6 @@ def main():
     if args.show:
         plt.show()
     plt.close(fig)
-
-    # ---- Figure: Final margin vs S ----
-    margin_unt_all, margin_unt_fail = _compute_margins(df_unt)
-    margin_tgt_all, margin_tgt_fail = _compute_margins(df_tgt)
-    opp_margin_all, opp_margin_fail = _compute_margins(df_opp, s_values)
-
-    fig2, (ax_ma, ax_mf) = plt.subplots(1, 2, figsize=(10, 4.5))
-
-    # --- Left: Mean final margin (all attacks) ---
-    ax_ma.plot(s_values, opp_margin_all, 'o-', color=c_opp, linewidth=1.5,
-               markersize=6, label=MODE_LABELS["opportunistic"], zorder=3)
-    if not np.isnan(margin_unt_all):
-        ax_ma.axhline(margin_unt_all, color=c_unt, linestyle='--',
-                      linewidth=1.2,
-                      label=f'{MODE_LABELS["untargeted"]} ({margin_unt_all:.3f})')
-    if not np.isnan(margin_tgt_all):
-        ax_ma.axhline(margin_tgt_all, color=c_tgt, linestyle='--',
-                      linewidth=1.2,
-                      label=f'{MODE_LABELS["targeted"]} ({margin_tgt_all:.3f})')
-    ax_ma.axvline(best_s, color='gray', linestyle=':', alpha=0.6,
-                  label=f'Best $S={best_s}$')
-    ax_ma.set_xlabel("Stability threshold $S$")
-    ax_ma.set_ylabel("Mean final margin")
-    ax_ma.set_xticks(s_values)
-    ax_ma.legend(loc="best", framealpha=0.9)
-    ax_ma.set_title("Final Margin vs $S$ (all)")
-
-    # --- Right: Mean final margin (failed attacks only) ---
-    ax_mf.plot(s_values, opp_margin_fail, 's-', color=c_opp, linewidth=1.5,
-               markersize=6, label=MODE_LABELS["opportunistic"], zorder=3)
-    if not np.isnan(margin_unt_fail):
-        ax_mf.axhline(margin_unt_fail, color=c_unt, linestyle='--',
-                      linewidth=1.2,
-                      label=f'{MODE_LABELS["untargeted"]} ({margin_unt_fail:.3f})')
-    if not np.isnan(margin_tgt_fail):
-        ax_mf.axhline(margin_tgt_fail, color=c_tgt, linestyle='--',
-                      linewidth=1.2,
-                      label=f'{MODE_LABELS["targeted"]} ({margin_tgt_fail:.3f})')
-    ax_mf.axvline(best_s, color='gray', linestyle=':', alpha=0.6)
-    ax_mf.set_xlabel("Stability threshold $S$")
-    ax_mf.set_ylabel("Mean final margin (failed only)")
-    ax_mf.set_xticks(s_values)
-    ax_mf.legend(loc="best", framealpha=0.9)
-    ax_mf.set_title("Final Margin vs $S$ (failed)")
-
-    _savefig(fig2, args.outdir, "fig_ablation_s_robust_margin")
-    if args.show:
-        plt.show()
-    plt.close(fig2)
 
     print("\nDone.")
 
