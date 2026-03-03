@@ -48,7 +48,7 @@ The remainder of this paper is organized as follows. Section 2 surveys related w
 
 ### 2.1 Score-Based Black-Box Attacks
 
-Score-based (decision-score) attacks assume access to the full output probability vector but not to gradients. SimBA (Guo et al., 2019) iterates over an orthonormal basis (pixel or DCT), accepting perturbations that reduce the true-class probability. It requires only 1.4–1.5 queries per iteration on average and achieves high success rates on standard models. While SimBA could in principle adopt a margin-based acceptance criterion, its original formulation uses only the true-class probability, providing no mechanism for directing perturbations toward a specific adversarial class.
+Score-based (decision-score) attacks assume access to the full output probability vector but not to gradients. SimBA (Guo et al., 2019) iterates over an orthonormal basis (pixel or DCT), accepting perturbations that reduce the true-class probability. It requires only 1.4–1.5 queries per iteration on average (each candidate perturbation is tested in both the positive and negative direction) and achieves high success rates on standard models. Because the queries-per-iteration ratio differs across attacks, all comparisons in this paper are in iterations within a single attack; iteration counts should not be compared across attacks. While SimBA could in principle adopt a margin-based acceptance criterion, its original formulation uses only the true-class probability, providing no mechanism for directing perturbations toward a specific adversarial class.
 
 Square Attack (Andriushchenko et al., 2020) uses random square-shaped patches at the vertices of the $L_\infty$ ball, with a schedule that shrinks the patch size as the attack progresses. Its default margin loss $f_{y}(x) - \max_{k \neq y} f_k(x)$ implicitly tracks the nearest decision boundary. When run with cross-entropy loss instead, the margin guidance vanishes and the attack exhibits the same drift behavior as SimBA, making it an ideal testbed for isolating OT's contribution.
 
@@ -112,7 +112,7 @@ Output: adversarial example x'
 10.             if streak = S:
 11.                 target ← candidate
 12.                 locked ← True
-12. return x'
+13. return x'
 ```
 
 **Key design choices:**
@@ -503,7 +503,7 @@ Opportunistic Targeting demonstrates that the information needed to select an ef
 
 On standard models, the bridge is essentially free: every query in the exploration phase advances the attack as a normal untargeted step, and the stability monitor simply observes which direction the perturbation is naturally heading. Once a target emerges, the attack commits and achieves near-oracle efficiency. The simplicity of the approach (a stability counter and a mode switch, with no architectural or loss-function modifications) makes it immediately applicable to any score-based black-box attack operating on drift-prone losses.
 
-On robust models, targeting is neither beneficial nor harmful: OT matches oracle-targeted performance but neither mode significantly outperforms untargeted baselines. This neutrality suggests that adversarial training's landscape smoothing eliminates the directional advantage that targeting provides on standard models, without introducing a penalty. Since OT never degrades performance, it can be applied unconditionally as a "free option": on standard models it provides significant gains, and on robust models it has no measurable cost.
+On robust models, targeting is neither beneficial nor harmful: OT matches oracle-targeted performance but neither mode significantly outperforms untargeted baselines. As shown in Section 8.4, this neutrality stems from a bimodal difficulty distribution — images are either trivially easy or infeasible at the tested $\epsilon$ — which eliminates the medium-difficulty regime where directional commitment provides value. Since OT never degrades performance, it can be applied unconditionally as a "free option": on standard models it provides significant gains, and on robust models it has no measurable cost.
 
 ---
 
