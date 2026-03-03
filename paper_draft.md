@@ -391,6 +391,14 @@ Second, **OT is redundant with margin loss**: margin untargeted (98.7%, 1,453 me
 
 This confirms OT as a **general-purpose margin surrogate**: it provides the directional guidance that margin loss encodes natively, making it valuable for any drift-prone loss (CE, probability-based) but unnecessary when margin tracking is already built in.
 
+### 7.3 Heuristic Robustness
+
+One might consider alternative lock-in heuristics: selecting the class with the highest sustained margin over $S$ steps rather than the highest rank, locking at the earliest stable class regardless of later challengers, or requiring the top-$K$ classes to stabilize jointly before committing. However, the existing ablations subsume these alternatives.
+
+The first two reduce to endpoints of the $S$ sweep already reported in Section 7.1. Locking at the earliest opportunity corresponds to $S = 2$; requiring broader consensus corresponds to high $S$ ($\geq 12$). Since performance is nearly flat across $S \in \{2, \ldots, 15\}$ — success rate varies by at most 1.1 pp for SimBA and 2.1 pp for Square Attack — no amount of tuning the lock-in timing yields a meaningful improvement. The margin-informed variant is addressed by the loss ablation (Section 7.2): margin tracking at every iteration (which margin loss provides natively) is redundant with OT, so embedding margin information into the heuristic itself would add complexity without payoff.
+
+The lock-match analysis (Section 5.5) explains this insensitivity. OT achieves near-oracle performance with only ~60% lock-match rate, demonstrating that the specific class selected matters far less than the act of directional commitment itself. Once any accessible class is locked, the perturbation gains the directionality that drift-prone losses lack, regardless of how that class was chosen. The simplest heuristic — argmax rank stability with a single threshold $S$ — is therefore sufficient: more sophisticated selection criteria would produce statistically indistinguishable outcomes at the cost of additional hyperparameters.
+
 ---
 
 ## 8. Robust Models
