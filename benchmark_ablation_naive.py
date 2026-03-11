@@ -239,7 +239,7 @@ def main():
     model = load_benchmark_model(MODEL_NAME, SOURCE, device)
 
     if torch.cuda.is_available():
-        model = torch.compile(model)
+        model = torch.compile(model, mode="reduce-overhead")
 
     print(f"Selecting {args.n_images} images from {VAL_DIR}...")
     image_paths = select_images(VAL_DIR, args.n_images, args.image_seed)
