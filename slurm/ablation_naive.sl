@@ -1,18 +1,17 @@
 #!/bin/bash
 #SBATCH -J "ablation_naive"
-#SBATCH -o slurm/logs/ablation_naive_%a.out
-#SBATCH -e slurm/logs/ablation_naive_%a.err
+#SBATCH -o slurm/logs/ablation_naive.out
+#SBATCH -e slurm/logs/ablation_naive.err
 #SBATCH -p ar_a100
 #SBATCH --gres=gpu:a100:1
 #SBATCH -n 1
-#SBATCH --cpus-per-gpu 4
-#SBATCH --mem 16G
+#SBATCH --cpus-per-gpu 8
+#SBATCH --mem 64G
 #SBATCH --time=08:00:00
-#SBATCH --array=0-9
 
-# Slurm job array: each task handles 10 images (100 images / 10 tasks).
+# Launches N_WORKERS parallel processes on a single A100.
 # Submit:  sbatch slurm/ablation_naive.sl
-# Monitor: tail -f slurm/logs/ablation_naive_*.out
+# Monitor: bash slurm/monitor.sh
 # Resume:  sbatch again — CSV keys prevent duplicate work.
 #
 # Prerequisites (run once on login node):
@@ -23,10 +22,17 @@
 module purge
 module load aidl/pytorch/2.6.0-cuda12.6
 
-CHUNK=10
-START=$((SLURM_ARRAY_TASK_ID * CHUNK))
-END=$((START + CHUNK))
+N_WORKERS=${N_WORKERS:-10}
+N_IMAGES=100
+CHUNK=$(( (N_IMAGES + N_WORKERS - 1) / N_WORKERS ))
 
-echo "Worker ${SLURM_ARRAY_TASK_ID}: images [${START}:${END}] starting at $(date)"
-python -u benchmark_ablation_naive.py --image-start $START --image-end $END
-echo "Worker ${SLURM_ARRAY_TASK_ID}: finished at $(date)"
+echo "Starting $N_WORKERS workers at $(date)"
+for i in $(seq 0 $((N_WORKERS - 1))); do
+    START=$((i * CHUNK))
+    END=$(( (i + 1) * CHUNK ))
+    [ $END -gt $N_IMAGES ] && END=$N_IMAGES
+    [ $START -ge $N_IMAGES ] && continue
+    python -u benchmark_ablation_naive.py --image-start $START --image-end $END > /dev/null 2>&1 &
+done
+wait
+echo "All workers finished at $(date)"
