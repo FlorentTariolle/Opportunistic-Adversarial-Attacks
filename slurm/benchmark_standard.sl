@@ -3,7 +3,7 @@
 #SBATCH -o slurm/logs/bench_std.out
 #SBATCH -e slurm/logs/bench_std.err
 #SBATCH -p ar_mig
-#SBATCH --gres=gpu:a100_1g.10gb:1
+#SBATCH --gres=gpu:a100_2g.20gb:1
 #SBATCH -n 1
 #SBATCH --cpus-per-gpu 4
 #SBATCH --mem 8G
