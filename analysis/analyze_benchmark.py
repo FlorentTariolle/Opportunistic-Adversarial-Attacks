@@ -251,7 +251,7 @@ def fig_headline_bars(df: pd.DataFrame, outdir: str, test_results=None):
             savings = (u[0] - o[0]) / u[0] * 100
             y_pos = max(u[0], o[0]) + agg[(agg["method"] == method)]["ci"].max() + 80
             ax.annotate(
-                f"\u2193 {savings:.1f}%",
+                f"\u2193 {savings:.1f}\\%",
                 xy=(x[j] + width, y_pos),
                 ha="center",
                 fontsize=11,
@@ -402,8 +402,16 @@ def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str, model_order: list[s
 
     ax.axhline(0, color="black", linewidth=0.5, linestyle=":")
     ax.set_xlabel("Untargeted Iterations (difficulty)")
-    ax.set_ylabel("Opportunistic Savings (%)")
+    ax.set_ylabel(r"Opportunistic Savings (\%)")
     ax.set_title("Does Opportunistic Targeting Help More on Harder Images?")
+    # Clip y-axis to readable range; annotate outliers
+    ylo, yhi = -200, 100
+    n_clipped = int((merged["savings_pct"] < ylo).sum())
+    ax.set_ylim(ylo, yhi)
+    if n_clipped > 0:
+        ax.text(0.98, 0.02, f"{n_clipped} points below {ylo}% (clipped)",
+                transform=ax.transAxes, ha="right", va="bottom", fontsize=7,
+                fontstyle="italic", color="gray")
     ax.legend(fontsize=8, ncol=2, loc="best")
     _savefig(fig, outdir, "fig_difficulty_vs_savings")
     return fig
@@ -460,14 +468,14 @@ def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     h + 1.5,
-                    f"{h:.0f}%",
+                    f"{h:.0f}\\%",
                     ha="center",
                     fontsize=9,
                 )
 
     ax.set_xticks(x)
     ax.set_xticklabels(models)
-    ax.set_ylabel("Lock-Match Rate (%)")
+    ax.set_ylabel(r"Lock-Match Rate (\%)")
     ax.set_title("Does Opportunistic Lock onto the Same Class as Untargeted?")
     ax.set_ylim(0, 115)
     ax.legend()
@@ -542,7 +550,7 @@ def fig_lock_match_robust(df: pd.DataFrame, outdir: str, model_order: list[str])
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     h + 1.5,
-                    f"{h:.0f}%",
+                    f"{h:.0f}\\%",
                     ha="center",
                     fontsize=9,
                 )
@@ -550,13 +558,13 @@ def fig_lock_match_robust(df: pd.DataFrame, outdir: str, model_order: list[str])
     # Reference line for standard benchmark match rates
     ax.axhline(80, color="gray", linestyle="--", linewidth=1, alpha=0.7)
     ax.text(
-        len(models) - 0.5, 82, "Standard benchmark ~80%",
+        len(models) - 0.5, 82, r"Standard benchmark $\sim$80\%",
         fontsize=8, color="gray", ha="right",
     )
 
     ax.set_xticks(x)
     ax.set_xticklabels(models)
-    ax.set_ylabel("Lock-Match Rate (%)")
+    ax.set_ylabel(r"Lock-Match Rate (\%)")
     ax.set_title("Decoy Class Problem: OT Locks onto Wrong Class on Robust Models")
     ax.set_ylim(0, 115)
     ax.legend()
