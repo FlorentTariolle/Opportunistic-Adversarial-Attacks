@@ -25,7 +25,7 @@
 \begin{abstract}
 Black-box adversarial attacks that minimize only the ground-truth confidence suffer from \textit{class drift}: perturbations wander through the feature space without committing to a specific adversarial class, wasting queries on diffuse, undirected progress. We introduce \textbf{Opportunistic Targeting (OT)}, a lightweight wrapper that switches an untargeted attack to a targeted objective early in its trajectory, locking onto whichever non-true class currently leads. OT requires no architectural modification to the underlying attack, no gradient access, and no \textit{a priori} target-class knowledge.
 
-We validate OT on three score-based attacks---SimBA, Square Attack (cross-entropy loss), and Bandits---across five standard ImageNet classifiers including a Vision Transformer (4,500 runs). On random-search attacks, OT closely tracks oracle performance: SimBA success rate rises from 43\% to 70\% on ResNet-50 (+27 pp), and Square Attack achieves a 29.5\% pooled censored-mean iteration reduction (43\% on ResNet-50 alone). On the gradient-estimation attack Bandits, OT provides no benefit---a negative result that reinforces our margin-surrogate interpretation. On adversarially-trained models, targeting mode has no statistically significant effect. The benefit is driven by early directional commitment itself: a fixed-iteration switch performs identically to a rank-stability heuristic across all tested configurations.
+We validate OT on three score-based attacks---SimBA, Square Attack (cross-entropy loss), and Bandits---across five standard ImageNet classifiers including a Vision Transformer (4,500 runs). On random-search attacks, OT closely tracks oracle performance: SimBA success rate rises from 43\% to 70\% on ResNet-50 (+27 pp), and Square Attack achieves a 29.5\% pooled censored-mean iteration reduction (43\% on ResNet-50 alone). On the gradient-estimation attack Bandits, OT provides no benefit---a negative result that reinforces our margin-surrogate interpretation. On adversarially-trained models, targeting mode has no statistically significant effect. The benefit is driven by target selection---random targeting is catastrophic---and a short exploration phase ($T \geq 5$) provides cheap insurance over the clean-image argmax alone.
 
 \medskip
 \keywords{Adversarial attacks, black-box, query efficiency, opportunistic targeting}
@@ -50,7 +50,7 @@ The switch timing $T$ is not sensitive: ablations show that any $T \in \{5, \ldo
 
 \begin{enumerate}
     \item \textbf{A wrapper for drift-prone score-based attacks} that adds opportunistic targeting. OT benefits random-search attacks (SimBA, Square Attack with CE loss) but not attacks with built-in directionality (gradient estimation, margin loss), confirming its role as a margin surrogate.
-    \item \textbf{Empirical validation} across five ImageNet classifiers and three attack methods (4,500 runs), showing that OT provides near-oracle efficiency. The benefit is driven by early directional commitment: a fixed-iteration switch performs identically to a rank-stability heuristic.
+    \item \textbf{Empirical validation} across five ImageNet classifiers and three attack methods (4,500 runs), showing that OT provides near-oracle efficiency. Target selection is critical---random targeting is catastrophic---and a short exploration phase provides cheap insurance over the clean-image argmax.
     \item \textbf{A characterization of targeting neutrality} on adversarially-trained models, where a bimodal difficulty distribution eliminates the medium-difficulty regime where directional commitment provides value.
 \end{enumerate}
 
@@ -251,7 +251,9 @@ Targeting mode has no statistically significant effect on success rate or iterat
 \section{Discussion and Conclusion}\label{sec:conclusion}
 
 \subsection{Ablations}\label{sec:ablations}
-Sweeping the stability threshold $S \in \{2, \ldots, 15\}$ on ResNet-50 (100 images, 15K budget) shows at most 2.1 pp variation in success rate (Appendix~\ref{app:ablation-details}). A stronger test removes the stability mechanism entirely: a \textbf{fixed-iteration switch} at iteration $T$ with no stability check yields indistinguishable results for all $T \in \{5, \ldots, 500\}$. This is the paper's central mechanistic finding: \textbf{the act of early directional commitment---not the specific trigger mechanism or target quality---drives OT's benefit}. We recommend the fixed-iteration switch as the default.
+Sweeping the stability threshold $S \in \{2, \ldots, 15\}$ on ResNet-50 (100 images, 15K budget) shows at most 2.1 pp variation in success rate (Appendix~\ref{app:ablation-details}). A stronger test removes the stability mechanism entirely: a \textbf{fixed-iteration switch} at iteration $T$ with no stability check yields indistinguishable results for all $T \in \{5, \ldots, 500\}$. We recommend the fixed-iteration switch as the default.
+
+Two further ablations isolate what drives OT's benefit. First, \textbf{targeting a random non-true class} is catastrophic: success drops to 14\% for SimBA and 53\% for Square Attack (CE), far below untargeted baselines (43\% and 81\%). Target \emph{selection} matters---not just directional commitment. Second, \textbf{targeting the clean-image argmax} ($T = 0$, no exploration) nearly matches OT: 79\% vs.\ 80\% for SimBA and 96\% vs.\ 96\% for Square Attack (CE). However, Square Attack with a short exploration ($T = 5$) reaches 99\%, a 3~pp gain over $T = 0$. Since the exploration phase costs less than 1\% of a typical budget, it provides cheap insurance against edge cases where early perturbation steps reveal a better target than the clean-image ranking.
 
 \textbf{Summary.} Opportunistic Targeting demonstrates that the information needed to select an effective adversarial target is already latent in the attack's trajectory. By switching to a targeted objective at any small fixed iteration count, OT eliminates the class drift that plagues probability-minimization and CE losses. On standard models with random-search attacks, OT provides significant gains: up to +27 pp in success rate and 43\% in censored-mean iteration reduction on ResNet-50. On attacks with built-in directionality (Bandits, Square Attack with margin loss), OT is redundant---reinforcing the margin-surrogate interpretation. On robust models, targeting is neutral due to a bimodal difficulty distribution.
 
@@ -263,7 +265,7 @@ Sweeping the stability threshold $S \in \{2, \ldots, 15\}$ on ResNet-50 (100 ima
 (5)~All experiments use ImageNet ($K = 1000$), which maximizes drift potential; the benefit may diminish on datasets with fewer classes.
 
 \textbf{Future work.}
-Extending OT to decision-based attacks (label-only feedback), testing on harder settings where switch timing may matter (larger $\epsilon$, CIFAR-10 with $K=10$), characterizing OT's failure mode on gradient-estimation attacks, and investigating whether the exploration phase is necessary at all (i.e., whether targeting the runner-up class from the clean prediction suffices) are promising directions.
+Extending OT to decision-based attacks (label-only feedback), testing on harder settings where switch timing may matter (larger $\epsilon$, CIFAR-10 with $K=10$), and characterizing OT's failure mode on gradient-estimation attacks are promising directions.
 
 \bibliography{references}
 
