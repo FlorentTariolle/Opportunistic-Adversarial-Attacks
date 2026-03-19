@@ -1,10 +1,10 @@
-# Opportunistic-Adversarial-Attacks
+# Opportunistic Targeting
 
-A Rank-Stability Heuristic for Query-Efficient Black-Box Adversarial Attacks
+Early Directional Commitment for Query-Efficient Black-Box Adversarial Attacks
 
 ## Overview
 
-**Opportunistic Targeting (OT)** is a lightweight wrapper that adds dynamic target selection to any score-based black-box adversarial attack. It monitors the rank stability of the leading non-true class during an untargeted attack and switches to a targeted objective once a stable candidate emerges. OT requires no architectural modification, no gradient access, and no a priori target-class knowledge.
+**Opportunistic Targeting (OT)** is a lightweight wrapper that adds early target selection to any score-based black-box adversarial attack. It runs the attack in untargeted mode for a short exploration phase, then switches to a targeted objective against whichever non-true class currently leads. By acting as a margin-loss surrogate for attacks that lack implicit target tracking, OT eliminates class drift without requiring architectural modification, gradient access, or a priori target-class knowledge.
 
 See [`paper/main.tex`](paper/main.tex) for the full paper.
 
