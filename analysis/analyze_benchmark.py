@@ -447,14 +447,16 @@ def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
     models = [m for m in model_order if m in match_rate["model"].unique()]
     methods = [m for m in METHODS if m in df["method"].unique()]
 
+    method_colors = {"SimBA": "#4878CF", "SquareAttack": "#D65F5F", "Bandits": "#6BA353"}
     fig, ax = plt.subplots(figsize=(7, 4.5))
     x = np.arange(len(models))
-    width = 0.3
+    n_methods = len(methods)
+    width = 0.8 / max(n_methods, 1)
     for i, method in enumerate(methods):
         sub = match_rate[match_rate["method"] == method].set_index("model").reindex(models)
-        color = "#4878CF" if method == "SimBA" else "#D65F5F"
+        color = method_colors.get(method, "#888888")
         bars = ax.bar(
-            x + (i - 0.5) * width,
+            x + (i - (n_methods - 1) / 2) * width,
             sub["match_rate"] * 100,
             width,
             color=color,
@@ -529,14 +531,16 @@ def fig_lock_match_robust(df: pd.DataFrame, outdir: str, model_order: list[str])
     models = [m for m in model_order if m in match_rate["model"].unique()]
     methods = [m for m in METHODS if m in df["method"].unique()]
 
+    method_colors = {"SimBA": "#4878CF", "SquareAttack": "#D65F5F", "Bandits": "#6BA353"}
     fig, ax = plt.subplots(figsize=(7, 4.5))
     x = np.arange(len(models))
-    width = 0.3
+    n_methods = len(methods)
+    width = 0.8 / max(n_methods, 1)
     for i, method in enumerate(methods):
         sub = match_rate[match_rate["method"] == method].set_index("model").reindex(models)
-        color = "#4878CF" if method == "SimBA" else "#D65F5F"
+        color = method_colors.get(method, "#888888")
         bars = ax.bar(
-            x + (i - 0.5) * width,
+            x + (i - (n_methods - 1) / 2) * width,
             sub["match_rate"] * 100,
             width,
             color=color,
@@ -873,9 +877,11 @@ def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda",
         csv_path = f"results/benchmark_{source}.csv"
 
     # Pick the best showcase images from benchmark data
+    # Exclude Bandits — OTS is redundant for gradient-estimation attacks
     bench_df = pd.read_csv(csv_path)
+    lockin_methods = [m for m in METHODS if m != "Bandits"]
     cases = []
-    for method in [m for m in METHODS if m in bench_df["method"].unique()]:
+    for method in [m for m in lockin_methods if m in bench_df["method"].unique()]:
         img_name, seed = _best_ots_image(csv_path, model_name, method)
         img_path = _resolve_image_path(img_name)
         short = "Square Attack" if method == "SquareAttack" else method
