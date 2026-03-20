@@ -1,7 +1,7 @@
 """
 Multi-Seed Validation Analysis (#24)
 
-Analyzes cross-seed consistency of OT results on ResNet-50.
+Analyzes cross-seed consistency of OTS results on ResNet-50.
 Generates per-seed statistics, Wilcoxon tests, and publication figures.
 
 Usage:
@@ -428,14 +428,14 @@ def fig_effect_size(df: pd.DataFrame, outdir: str, test_results: pd.DataFrame):
     ax1.set_xticks(seeds)
     ax1.set_xticklabels([f"Seed {s}" for s in seeds])
     ax1.set_ylabel(r"$\Delta$ Success Rate (pp)")
-    ax1.set_title("Success Rate Gain (OT vs Untargeted)")
+    ax1.set_title("Success Rate Gain (OTS vs Untargeted)")
     ax1.axhline(0, color="black", linewidth=0.5)
     ax1.legend()
 
     ax2.set_xticks(seeds)
     ax2.set_xticklabels([f"Seed {s}" for s in seeds])
     ax2.set_ylabel(r"Iteration Savings (\%)")
-    ax2.set_title("Median Iteration Savings (OT vs Untargeted)")
+    ax2.set_title("Median Iteration Savings (OTS vs Untargeted)")
     ax2.axhline(0, color="black", linewidth=0.5)
     ax2.legend()
 

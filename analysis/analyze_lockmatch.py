@@ -1,7 +1,7 @@
 """
 Lock-Match Correlation Analysis (Issue #13)
 
-Analyzes whether OT's success depends on finding the oracle class or any
+Analyzes whether OTS's success depends on finding the oracle class or any
 viable class.  Reads both benchmark_standard.csv and benchmark_winrate.csv,
 computes point-biserial correlations and contingency tables, and generates
 publication figures.
@@ -120,15 +120,15 @@ def print_summary(pairs: pd.DataFrame, label: str):
     print(f"  Paired runs: {n}  (match={n_match}, mismatch={n - n_match})")
     print(f"  Lock-match rate: {pairs['lock_match'].mean():.1%}")
 
-    # Contingency: lock_match × OT success
-    print(f"\n  Contingency (lock_match × OT success):")
+    # Contingency: lock_match × OTS success
+    print(f"\n  Contingency (lock_match × OTS success):")
     ct = pd.crosstab(
         pairs["lock_match"].map({True: "Match", False: "Mismatch"}),
-        pairs["success_opp"].map({True: "OT success", False: "OT fail"}),
+        pairs["success_opp"].map({True: "OTS success", False: "OTS fail"}),
     )
     print(ct.to_string().replace("\n", "\n  "))
 
-    print(f"\n  OT success | Match: {pairs[pairs['lock_match']]['success_opp'].mean():.1%}"
+    print(f"\n  OTS success | Match: {pairs[pairs['lock_match']]['success_opp'].mean():.1%}"
           f"  | Mismatch: {pairs[~pairs['lock_match']]['success_opp'].mean():.1%}")
 
     # Both-succeed correlation
@@ -196,7 +196,7 @@ def fig_lockmatch_savings(std_pairs: pd.DataFrame, win_pairs: pd.DataFrame,
 
 def fig_lockmatch_success(std_pairs: pd.DataFrame, win_pairs: pd.DataFrame,
                           outdir: str):
-    """Bar chart: OT success rate split by lock-match, per benchmark."""
+    """Bar chart: OTS success rate split by lock-match, per benchmark."""
     fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), sharey=True)
 
     for ax, (pairs, title) in zip(axes, [
@@ -228,8 +228,8 @@ def fig_lockmatch_success(std_pairs: pd.DataFrame, win_pairs: pd.DataFrame,
         ax.set_ylim(0, 115)
         ax.legend()
 
-    axes[0].set_ylabel("OT Success Rate (%)")
-    fig.suptitle("OT Success Rate by Lock-Match", fontsize=13)
+    axes[0].set_ylabel("OTS Success Rate (%)")
+    fig.suptitle("OTS Success Rate by Lock-Match", fontsize=13)
     _savefig(fig, outdir, "fig_lockmatch_success")
     return fig
 

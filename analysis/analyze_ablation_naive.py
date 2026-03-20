@@ -4,7 +4,7 @@ Reads benchmark_ablation_naive.csv and produces a 2x2 figure:
   - Top row: SimBA (success rate vs T, mean iterations vs T)
   - Bottom row: SquareAttack (same)
 
-OT baseline (stability heuristic) is shown as a horizontal reference line.
+OTS baseline (stability heuristic) is shown as a horizontal reference line.
 
 Usage:
     python analyze_ablation_naive.py                       # Default CSV + output
@@ -116,25 +116,25 @@ def main():
 
     print(f"Methods found: {methods}")
 
-    # Separate OT baseline and naive T rows
-    df_ot = df[df["t_value"] == "OT"]
-    df_naive = df[df["t_value"] != "OT"].copy()
+    # Separate OTS baseline and naive T rows
+    df_ots = df[df["t_value"] == "OTS"]
+    df_naive = df[df["t_value"] != "OTS"].copy()
     df_naive["t_value"] = pd.to_numeric(df_naive["t_value"])
 
     # ---- Compute stats per method ----
-    stats = {}  # method -> (t_values, sr, mi, ot_sr, ot_mi)
+    stats = {}  # method -> (t_values, sr, mi, ots_sr, ots_mi)
     for method in methods:
         df_m = df_naive[df_naive["method"] == method]
         t_values = sorted(df_m["t_value"].unique())
         sr, mi = _compute_stats(df_m, t_values)
 
-        # OT baseline stats
-        df_ot_m = df_ot[df_ot["method"] == method]
-        ot_sr = df_ot_m["success"].mean() if len(df_ot_m) > 0 else np.nan
-        ot_succ = df_ot_m[df_ot_m["success"]]
-        ot_mi = ot_succ["iterations"].mean() if len(ot_succ) > 0 else np.nan
+        # OTS baseline stats
+        df_ots_m = df_ots[df_ots["method"] == method]
+        ots_sr = df_ots_m["success"].mean() if len(df_ots_m) > 0 else np.nan
+        ots_succ = df_ots_m[df_ots_m["success"]]
+        ots_mi = ots_succ["iterations"].mean() if len(ots_succ) > 0 else np.nan
 
-        stats[method] = (t_values, sr, mi, ot_sr, ot_mi)
+        stats[method] = (t_values, sr, mi, ots_sr, ots_mi)
 
         label = METHOD_LABELS.get(method, method)
         print(f"\n{label} (T values: {t_values}):")
@@ -145,9 +145,9 @@ def main():
             avg_str = f"{mi[i]:.0f}" if not np.isnan(mi[i]) else "N/A"
             print(f"  T={t:>3d}: {sr[i]:.1%} success ({n_succ}/{n}), "
                   f"mean iters={avg_str}")
-        ot_sr_str = f"{ot_sr:.1%}" if not np.isnan(ot_sr) else "N/A"
-        ot_mi_str = f"{ot_mi:.0f}" if not np.isnan(ot_mi) else "N/A"
-        print(f"  OT baseline: {ot_sr_str} success, mean iters={ot_mi_str}")
+        ots_sr_str = f"{ots_sr:.1%}" if not np.isnan(ots_sr) else "N/A"
+        ots_mi_str = f"{ots_mi:.0f}" if not np.isnan(ots_mi) else "N/A"
+        print(f"  OTS baseline: {ots_sr_str} success, mean iters={ots_mi_str}")
 
     # ---- Figure: n_methods rows x 2 cols ----
     fig, axes = plt.subplots(n_methods, 2,
@@ -155,7 +155,7 @@ def main():
                              squeeze=False)
 
     for row, method in enumerate(methods):
-        tv, sr, mi, ot_sr, ot_mi = stats[method]
+        tv, sr, mi, ots_sr, ots_mi = stats[method]
         color = METHOD_COLORS.get(method, "#6BA353")
         label = METHOD_LABELS.get(method, method)
 
@@ -165,9 +165,9 @@ def main():
         # Success rate vs T
         ax_sr.plot(tv, sr, 'o-', color=color, linewidth=1.5,
                    markersize=6, label=f"Naive (fixed $T$)")
-        if not np.isnan(ot_sr):
-            ax_sr.axhline(ot_sr, color='gray', linestyle='--', alpha=0.7,
-                          label=f"OT (stability)")
+        if not np.isnan(ots_sr):
+            ax_sr.axhline(ots_sr, color='gray', linestyle='--', alpha=0.7,
+                          label=f"OTS (stability)")
         ax_sr.set_xlabel("Switch iteration $T$")
         ax_sr.set_ylabel("Success rate")
         ax_sr.set_xscale('log')
@@ -180,9 +180,9 @@ def main():
         # Mean iterations vs T
         ax_mi.plot(tv, mi, 's-', color=color, linewidth=1.5,
                    markersize=6, label=f"Naive (fixed $T$)")
-        if not np.isnan(ot_mi):
-            ax_mi.axhline(ot_mi, color='gray', linestyle='--', alpha=0.7,
-                          label=f"OT (stability)")
+        if not np.isnan(ots_mi):
+            ax_mi.axhline(ots_mi, color='gray', linestyle='--', alpha=0.7,
+                          label=f"OTS (stability)")
         ax_mi.set_xlabel("Switch iteration $T$")
         ax_mi.set_ylabel("Mean iterations (successful)")
         ax_mi.set_xscale('log')

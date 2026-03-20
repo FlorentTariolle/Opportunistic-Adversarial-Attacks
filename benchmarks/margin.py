@@ -2,7 +2,7 @@
 
 Runs SquareAttack with margin loss on ResNet-50 (standard) across 100 random
 ImageNet val images in two modes: untargeted and opportunistic (S=8).
-Comparison with CE-loss modes (CE+OT and CE oracle) comes from
+Comparison with CE-loss modes (CE+OTS and CE oracle) comes from
 benchmark_winrate.csv, loaded at analysis time.
 
 Split by images for parallel execution:
@@ -276,10 +276,10 @@ def main():
               f"{result['iterations']} iters | {status}")
 
     # ------------------------------------------------------------------
-    # Phase 2: Margin + OT (opportunistic)
+    # Phase 2: Margin + OTS (opportunistic)
     # ------------------------------------------------------------------
     print(f"\n{'='*70}")
-    print(f"Phase 2: Margin + OT ({n_images} images)")
+    print(f"Phase 2: Margin + OTS ({n_images} images)")
     print(f"{'='*70}")
 
     for image_name, x, y_true in images:

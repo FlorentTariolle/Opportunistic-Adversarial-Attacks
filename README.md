@@ -1,10 +1,10 @@
-# Opportunistic Targeting
+# Opportunistic Target Selection
 
 Early Directional Commitment for Query-Efficient Black-Box Adversarial Attacks
 
 ## Overview
 
-**Opportunistic Targeting (OT)** is a lightweight wrapper that adds early target selection to any score-based black-box adversarial attack. It runs the attack in untargeted mode for a short exploration phase, then switches to a targeted objective against whichever non-true class currently leads. By acting as a margin-loss surrogate for attacks that lack implicit target tracking, OT eliminates class drift without requiring architectural modification, gradient access, or a priori target-class knowledge.
+**Opportunistic Target Selection (OTS)** is a lightweight wrapper that adds early target selection to any score-based black-box adversarial attack. It runs the attack in untargeted mode for a short exploration phase, then switches to a targeted objective against whichever non-true class currently leads. By acting as a margin-loss surrogate for attacks that lack implicit target tracking, OTS eliminates class drift without requiring architectural modification, gradient access, or a priori target-class knowledge.
 
 See [`paper/main.tex`](paper/main.tex) for the full paper.
 
@@ -57,7 +57,7 @@ data/                   ImageNet class index and demo images
 | `benchmarks/winrate.py` | ResNet-50 CDF benchmark: 100 images, 15K budget, bootstrapped CI |
 | `benchmarks/ablation_s.py` | Stability threshold sweep S={2..15} on standard ResNet-50 |
 | `benchmarks/ablation_s_robust.py` | Stability threshold sweep on robust ResNet-50 |
-| `benchmarks/ablation_naive.py` | Naive fixed-iteration switching vs OT (standard and robust) |
+| `benchmarks/ablation_naive.py` | Naive fixed-iteration switching vs OTS (standard and robust) |
 | `benchmarks/margin.py` | Margin vs CE loss ablation on SquareAttack |
 | `benchmarks/landscape.py` | Per-iteration confidence history collection |
 | `benchmarks/theta.py` | Perturbation alignment with oracle direction |

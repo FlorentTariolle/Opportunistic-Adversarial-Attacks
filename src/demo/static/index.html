@@ -287,7 +287,7 @@ input[type="range"]::-moz-range-track {
 .checkbox-row input[type="checkbox"] { accent-color: var(--text); width: 15px; height: 15px; }
 .checkbox-row span { font-size: 0.85rem; font-weight: 400; }
 
-/* OT toggle (Copia game-toggle style) */
+/* OTS toggle (Copia game-toggle style) */
 .ot-toggle {
     display: flex;
     align-items: center;
@@ -944,7 +944,7 @@ input[type="range"]::-moz-range-track {
             <div id="ot-group">
                 <button class="ot-toggle active" id="ot-toggle">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    Opportunistic Targeting
+                    Opportunistic Target Selection
                 </button>
             </div>
 
@@ -1356,7 +1356,7 @@ function renderResult(text) {
     var lines = text.split('\n\n').filter(Boolean);
     if (lines.length === 0) return '';
 
-    // First line: status + budget (e.g. "✓ **OT** (locked at T=10) | 894 iterations / 10000")
+    // First line: status + budget (e.g. "✓ **OTS** (locked at T=10) | 894 iterations / 10000")
     var firstLine = lines[0];
     var isSuccess = firstLine.includes('Success');
     var statusText = firstLine.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -1412,7 +1412,7 @@ function setupListeners() {
         updateOTState();
     });
 
-    // OT toggle → swap icon and show/hide switch slider
+    // OTS toggle → swap icon and show/hide switch slider
     var otCheckSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
     var otPlusSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
     document.getElementById('ot-toggle').addEventListener('click', () => {

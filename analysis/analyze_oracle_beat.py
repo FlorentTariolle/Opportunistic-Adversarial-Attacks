@@ -1,8 +1,8 @@
 """
-OT-beats-oracle rate analysis
+OTS-beats-oracle rate analysis
 
-Compares opportunistic-target (OT) vs oracle-target iterations for cases
-where both succeed. Reports how often OT converges faster, ties, or is slower.
+Compares opportunistic-target (OTS) vs oracle-target iterations for cases
+where both succeed. Reports how often OTS converges faster, ties, or is slower.
 
 Usage:
     python analyze_oracle_beat.py                      # Standard models (default)
@@ -58,7 +58,7 @@ MODEL_ORDERS = {
 }
 
 OUTCOME_COLORS = {
-    "OT wins": "#6BA353",   # green
+    "OTS wins": "#6BA353",   # green
     "Tie": "#AAAAAA",       # grey
     "Oracle wins": "#E8873A",  # orange
 }
@@ -88,18 +88,18 @@ def _savefig(fig, outdir: str, name: str):
 # ===========================================================================
 def compute_oracle_beat(df: pd.DataFrame) -> pd.DataFrame:
     """Pair opportunistic vs targeted rows and classify outcomes."""
-    ot = df[(df["mode"] == "opportunistic") & (df["success"] == True)].copy()
+    ots = df[(df["mode"] == "opportunistic") & (df["success"] == True)].copy()
     oracle = df[(df["mode"] == "targeted") & (df["success"] == True)].copy()
 
     key = ["model", "method", "image", "epsilon", "seed"]
-    merged = ot.merge(oracle, on=key, suffixes=("_ot", "_oracle"))
+    merged = ots.merge(oracle, on=key, suffixes=("_ots", "_oracle"))
 
     merged["outcome"] = np.where(
-        merged["iterations_ot"] < merged["iterations_oracle"], "OT wins",
-        np.where(merged["iterations_ot"] == merged["iterations_oracle"],
+        merged["iterations_ots"] < merged["iterations_oracle"], "OTS wins",
+        np.where(merged["iterations_ots"] == merged["iterations_oracle"],
                  "Tie", "Oracle wins")
     )
-    merged["iter_diff"] = merged["iterations_oracle"] - merged["iterations_ot"]
+    merged["iter_diff"] = merged["iterations_oracle"] - merged["iterations_ots"]
     return merged
 
 
@@ -108,7 +108,7 @@ def summarize(merged: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for (model, method), grp in merged.groupby(["model", "method"]):
         n = len(grp)
-        for outcome in ["OT wins", "Tie", "Oracle wins"]:
+        for outcome in ["OTS wins", "Tie", "Oracle wins"]:
             count = (grp["outcome"] == outcome).sum()
             rows.append({
                 "model": model, "method": method,
@@ -118,7 +118,7 @@ def summarize(merged: pd.DataFrame) -> pd.DataFrame:
 
     # Overall row
     n_total = len(merged)
-    for outcome in ["OT wins", "Tie", "Oracle wins"]:
+    for outcome in ["OTS wins", "Tie", "Oracle wins"]:
         count = (merged["outcome"] == outcome).sum()
         rows.append({
             "model": "Overall", "method": "All",
@@ -133,7 +133,7 @@ def summarize(merged: pd.DataFrame) -> pd.DataFrame:
 # Figure
 # ===========================================================================
 def fig_oracle_beat(summary: pd.DataFrame, outdir: str, model_order: list[str]):
-    """Stacked horizontal bar chart of OT-vs-oracle outcomes."""
+    """Stacked horizontal bar chart of OTS-vs-oracle outcomes."""
     groups = summary[summary["model"] != "Overall"].copy()
     groups["label"] = groups["model"] + " / " + groups["method"]
 
@@ -151,7 +151,7 @@ def fig_oracle_beat(summary: pd.DataFrame, outdir: str, model_order: list[str]):
     y_pos = np.arange(len(labels_order))
     lefts = np.zeros(len(labels_order))
 
-    for outcome in ["OT wins", "Tie", "Oracle wins"]:
+    for outcome in ["OTS wins", "Tie", "Oracle wins"]:
         widths = []
         for label in labels_order:
             row = groups[(groups["label"] == label) & (groups["outcome"] == outcome)]
@@ -169,7 +169,7 @@ def fig_oracle_beat(summary: pd.DataFrame, outdir: str, model_order: list[str]):
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels_order)
     ax.set_xlabel("Fraction of paired successes")
-    ax.set_title("OT vs Oracle: iteration comparison (both succeed)")
+    ax.set_title("OTS vs Oracle: iteration comparison (both succeed)")
     ax.legend(loc="lower right")
     ax.set_xlim(0, 1)
     ax.invert_yaxis()
@@ -183,7 +183,7 @@ def fig_oracle_beat(summary: pd.DataFrame, outdir: str, model_order: list[str]):
 # ===========================================================================
 def main():
     parser = argparse.ArgumentParser(
-        description="Analyze how often OT beats the oracle target in iterations."
+        description="Analyze how often OTS beats the oracle target in iterations."
     )
     parser.add_argument(
         "--source", choices=["standard", "robust"], default="standard",
@@ -220,9 +220,9 @@ def main():
 
     model_order = MODEL_ORDERS[args.source]
 
-    print("\n=== OT-beats-Oracle Analysis ===")
+    print("\n=== OTS-beats-Oracle Analysis ===")
     merged = compute_oracle_beat(df)
-    print(f"  {len(merged)} paired successes (both OT and oracle succeed)")
+    print(f"  {len(merged)} paired successes (both OTS and oracle succeed)")
 
     if merged.empty:
         print("  No paired successes found. Nothing to analyze.")
@@ -236,7 +236,7 @@ def main():
         index=["model", "method"], columns="outcome",
         values=["count", "fraction"], aggfunc="first"
     )
-    pivot = pivot.reindex(columns=["OT wins", "Tie", "Oracle wins"], level=1)
+    pivot = pivot.reindex(columns=["OTS wins", "Tie", "Oracle wins"], level=1)
     print(pivot.to_string())
 
     # Overall
@@ -245,12 +245,12 @@ def main():
     for _, row in overall.iterrows():
         print(f"  {row['outcome']}: {row['count']}/{row['n']} ({row['fraction']:.1%})")
 
-    # Median iteration savings when OT wins
-    ot_wins = merged[merged["outcome"] == "OT wins"]
-    if not ot_wins.empty:
-        med_saving = ot_wins["iter_diff"].median()
-        mean_saving = ot_wins["iter_diff"].mean()
-        print(f"\n  When OT wins: median saving = {med_saving:.0f} iters, "
+    # Median iteration savings when OTS wins
+    ots_wins = merged[merged["outcome"] == "OTS wins"]
+    if not ots_wins.empty:
+        med_saving = ots_wins["iter_diff"].median()
+        mean_saving = ots_wins["iter_diff"].mean()
+        print(f"\n  When OTS wins: median saving = {med_saving:.0f} iters, "
               f"mean saving = {mean_saving:.1f} iters")
 
     # Save CSV

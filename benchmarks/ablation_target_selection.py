@@ -1,6 +1,6 @@
 """Target-selection ablation: T=0 (clean argmax) and random-target baselines.
 
-Tests whether OT's value comes from target *selection* or just from targeting.
+Tests whether OTS's value comes from target *selection* or just from targeting.
 
 New conditions (run by this script):
   clean_argmax  — target = argmax non-true class on the clean image (T=0)
@@ -8,7 +8,7 @@ New conditions (run by this script):
 
 Reference baselines (from existing CSVs, not re-run):
   untargeted    — benchmark_standard.csv (ResNet-50, 10K budget)
-  OT            — benchmark_ablation_naive_standard.csv (t_value=OT, 15K budget)
+  OTS           — benchmark_ablation_naive_standard.csv (t_value=OTS, 15K budget)
   oracle        — benchmark_standard.csv (ResNet-50, 10K budget)
 
 Usage:

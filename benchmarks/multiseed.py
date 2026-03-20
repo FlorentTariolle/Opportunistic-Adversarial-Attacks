@@ -1,7 +1,7 @@
 """Multi-seed validation benchmark (#24).
 
 Runs SimBA and SquareAttack (CE) on ResNet-50 with 5 attack seeds to validate
-that OT's effect is not seed-dependent.
+that OTS's effect is not seed-dependent.
 
 Each (method, image, mode, seed) combination is one run.
 Total: 2 methods × 100 images × 3 modes × 5 seeds = 3,000 runs.

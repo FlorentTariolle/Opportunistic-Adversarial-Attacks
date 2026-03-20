@@ -9,7 +9,7 @@
 #SBATCH --mem 16G
 #SBATCH --time=08:00:00
 
-# Naive ablation on robust ResNet-50: T=100 vs OT (#23)
+# Naive ablation on robust ResNet-50: T=100 vs OTS (#23)
 # Submit:  sbatch slurm/ablation_naive_robust.sl
 # Monitor: bash slurm/monitor.sh results/benchmark_ablation_naive_robust.csv 400
 # Resume:  sbatch again — CSV keys prevent duplicate work.

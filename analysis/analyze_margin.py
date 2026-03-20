@@ -2,13 +2,13 @@
 
 Compares 4 SquareAttack configurations on ResNet-50 (100 images, 15K budget):
   1. Margin untargeted        (from benchmark_margin.csv)
-  2. Margin + OT              (from benchmark_margin.csv)
-  3. CE + OT                  (from benchmark_winrate.csv)
+  2. Margin + OTS              (from benchmark_margin.csv)
+  3. CE + OTS                  (from benchmark_winrate.csv)
   4. CE oracle targeted       (from benchmark_winrate.csv)
 
 Produces:
   - Console summary table (mean/median iters, success rate)
-  - Wilcoxon signed-rank test: margin untargeted vs margin + OT
+  - Wilcoxon signed-rank test: margin untargeted vs margin + OTS
   - CDF figure: 4 curves with bootstrap 90% CI
   - Grouped bar chart: mean iterations per configuration
 
@@ -68,26 +68,26 @@ def _savefig(fig, outdir: str, name: str):
 # ===========================================================================
 CONFIG_ORDER = [
     "margin_untargeted",
-    "margin_ot",
-    "ce_ot",
+    "margin_ots",
+    "ce_ots",
     "ce_oracle",
 ]
 CONFIG_LABELS = {
     "margin_untargeted": "Margin untargeted",
-    "margin_ot": "Margin + OT",
-    "ce_ot": "CE + OT",
+    "margin_ots": "Margin + OTS",
+    "ce_ots": "CE + OTS",
     "ce_oracle": "CE oracle",
 }
 CONFIG_COLORS = {
     "margin_untargeted": "#4878CF",   # blue
-    "margin_ot": "#6BA353",           # green
-    "ce_ot": "#D65F5F",              # red
+    "margin_ots": "#6BA353",           # green
+    "ce_ots": "#D65F5F",              # red
     "ce_oracle": "#E8873A",          # orange
 }
 CONFIG_LINESTYLES = {
     "margin_untargeted": "-",
-    "margin_ot": "-",
-    "ce_ot": "--",
+    "margin_ots": "-",
+    "ce_ots": "--",
     "ce_oracle": "--",
 }
 
@@ -120,8 +120,8 @@ def build_configs(margin_df: pd.DataFrame,
 
     configs = {
         "margin_untargeted": margin_df[margin_df["mode"] == "untargeted"].copy(),
-        "margin_ot": margin_df[margin_df["mode"] == "opportunistic"].copy(),
-        "ce_ot": sq_win[sq_win["mode"] == "opportunistic"].copy(),
+        "margin_ots": margin_df[margin_df["mode"] == "opportunistic"].copy(),
+        "ce_ots": sq_win[sq_win["mode"] == "opportunistic"].copy(),
         "ce_oracle": sq_win[sq_win["mode"] == "targeted"].copy(),
     }
     # Normalize: set image as index for easy pairing
@@ -154,9 +154,9 @@ def print_summary(configs: dict[str, pd.DataFrame]):
 
 
 def print_paired_test(configs: dict[str, pd.DataFrame]):
-    """Wilcoxon signed-rank: margin untargeted vs margin + OT."""
+    """Wilcoxon signed-rank: margin untargeted vs margin + OTS."""
     mu = configs["margin_untargeted"]
-    mo = configs["margin_ot"]
+    mo = configs["margin_ots"]
 
     # Find images where both succeed
     common = mu.index.intersection(mo.index)
@@ -164,7 +164,7 @@ def print_paired_test(configs: dict[str, pd.DataFrame]):
                     if mu.loc[img, "success"] and mo.loc[img, "success"]]
     n = len(both_succeed)
 
-    print(f"\n  Paired test: Margin untargeted vs Margin + OT")
+    print(f"\n  Paired test: Margin untargeted vs Margin + OTS")
     print(f"  Both-succeed images: {n}")
 
     if n < 10:
@@ -176,7 +176,7 @@ def print_paired_test(configs: dict[str, pd.DataFrame]):
     diff = iters_u - iters_o
 
     print(f"  Mean iterations: untargeted={iters_u.mean():.0f}, "
-          f"OT={iters_o.mean():.0f}")
+          f"OTS={iters_o.mean():.0f}")
     print(f"  Mean savings: {diff.mean():+.0f} iters "
           f"({diff.mean() / iters_u.mean():+.1%})")
 

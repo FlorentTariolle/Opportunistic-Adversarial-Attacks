@@ -1,49 +1,49 @@
 model,method,outcome,count,n,fraction
-alexnet,Bandits,OT wins,18,45,0.4
+alexnet,Bandits,OTS wins,18,45,0.4
 alexnet,Bandits,Tie,16,45,0.35555555555555557
 alexnet,Bandits,Oracle wins,11,45,0.24444444444444444
-alexnet,SimBA,OT wins,26,77,0.33766233766233766
+alexnet,SimBA,OTS wins,26,77,0.33766233766233766
 alexnet,SimBA,Tie,20,77,0.2597402597402597
 alexnet,SimBA,Oracle wins,31,77,0.4025974025974026
-alexnet,SquareAttack,OT wins,18,100,0.18
+alexnet,SquareAttack,OTS wins,18,100,0.18
 alexnet,SquareAttack,Tie,65,100,0.65
 alexnet,SquareAttack,Oracle wins,17,100,0.17
-resnet18,Bandits,OT wins,13,32,0.40625
+resnet18,Bandits,OTS wins,13,32,0.40625
 resnet18,Bandits,Tie,13,32,0.40625
 resnet18,Bandits,Oracle wins,6,32,0.1875
-resnet18,SimBA,OT wins,19,90,0.2111111111111111
+resnet18,SimBA,OTS wins,19,90,0.2111111111111111
 resnet18,SimBA,Tie,18,90,0.2
 resnet18,SimBA,Oracle wins,53,90,0.5888888888888889
-resnet18,SquareAttack,OT wins,23,100,0.23
+resnet18,SquareAttack,OTS wins,23,100,0.23
 resnet18,SquareAttack,Tie,45,100,0.45
 resnet18,SquareAttack,Oracle wins,32,100,0.32
-resnet50,Bandits,OT wins,2,24,0.08333333333333333
+resnet50,Bandits,OTS wins,2,24,0.08333333333333333
 resnet50,Bandits,Tie,18,24,0.75
 resnet50,Bandits,Oracle wins,4,24,0.16666666666666666
-resnet50,SimBA,OT wins,21,66,0.3181818181818182
+resnet50,SimBA,OTS wins,21,66,0.3181818181818182
 resnet50,SimBA,Tie,8,66,0.12121212121212122
 resnet50,SimBA,Oracle wins,37,66,0.5606060606060606
-resnet50,SquareAttack,OT wins,36,90,0.4
+resnet50,SquareAttack,OTS wins,36,90,0.4
 resnet50,SquareAttack,Tie,24,90,0.26666666666666666
 resnet50,SquareAttack,Oracle wins,30,90,0.3333333333333333
-vgg16,Bandits,OT wins,9,39,0.23076923076923078
+vgg16,Bandits,OTS wins,9,39,0.23076923076923078
 vgg16,Bandits,Tie,18,39,0.46153846153846156
 vgg16,Bandits,Oracle wins,12,39,0.3076923076923077
-vgg16,SimBA,OT wins,19,85,0.2235294117647059
+vgg16,SimBA,OTS wins,19,85,0.2235294117647059
 vgg16,SimBA,Tie,30,85,0.35294117647058826
 vgg16,SimBA,Oracle wins,36,85,0.4235294117647059
-vgg16,SquareAttack,OT wins,16,100,0.16
+vgg16,SquareAttack,OTS wins,16,100,0.16
 vgg16,SquareAttack,Tie,58,100,0.58
 vgg16,SquareAttack,Oracle wins,26,100,0.26
-vit_b_16,Bandits,OT wins,7,22,0.3181818181818182
+vit_b_16,Bandits,OTS wins,7,22,0.3181818181818182
 vit_b_16,Bandits,Tie,9,22,0.4090909090909091
 vit_b_16,Bandits,Oracle wins,6,22,0.2727272727272727
-vit_b_16,SimBA,OT wins,7,51,0.13725490196078433
+vit_b_16,SimBA,OTS wins,7,51,0.13725490196078433
 vit_b_16,SimBA,Tie,21,51,0.4117647058823529
 vit_b_16,SimBA,Oracle wins,23,51,0.45098039215686275
-vit_b_16,SquareAttack,OT wins,32,100,0.32
+vit_b_16,SquareAttack,OTS wins,32,100,0.32
 vit_b_16,SquareAttack,Tie,23,100,0.23
 vit_b_16,SquareAttack,Oracle wins,45,100,0.45
-Overall,All,OT wins,266,1021,0.2605288932419197
+Overall,All,OTS wins,266,1021,0.2605288932419197
 Overall,All,Tie,386,1021,0.3780607247796278
 Overall,All,Oracle wins,369,1021,0.3614103819784525

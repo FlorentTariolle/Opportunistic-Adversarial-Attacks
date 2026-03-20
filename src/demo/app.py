@@ -419,9 +419,9 @@ def run_attack(
         status_word = "**Success**" if is_successful else "**Failure**"
 
         if opportunistic and switch_iteration is not None:
-            mode_line = f"OT (T={switch_iteration})"
+            mode_line = f"OTS (T={switch_iteration})"
         elif opportunistic:
-            mode_line = "OT (no lock)"
+            mode_line = "OTS (no lock)"
         elif targeted and target_class is not None:
             target_label = get_imagenet_label(target_class)
             mode_line = f"Targeted → {target_class} ({target_label})"

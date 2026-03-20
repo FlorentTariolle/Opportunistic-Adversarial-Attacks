@@ -1,11 +1,11 @@
 """Naive fixed-iteration switching ablation.
 
-Compares OT's stability heuristic against a naive baseline that switches to
+Compares OTS's stability heuristic against a naive baseline that switches to
 targeted at a fixed iteration T (no stability check).
 
 Usage:
     python benchmark_ablation_naive.py                                    # Standard (T sweep)
-    python benchmark_ablation_naive.py --source robust                   # Robust (T=100 vs OT)
+    python benchmark_ablation_naive.py --source robust                   # Robust (T=100 vs OTS)
     python benchmark_ablation_naive.py --image-start 0 --image-end 50    # Terminal 1
     python benchmark_ablation_naive.py --image-start 50 --image-end 100  # Terminal 2
     python benchmark_ablation_naive.py --n-images 2                      # Smoke test
@@ -35,8 +35,8 @@ EPSILON = 8 / 255
 METHODS = ['SimBA', 'SquareAttack']
 T_VALUES_STANDARD = [5, 10, 20, 50, 100, 200, 500]
 T_VALUES_ROBUST = [100]
-# Default S values for OT baseline (must match benchmark_winrate.py)
-OT_S = {'SimBA': 10, 'SquareAttack': 8}
+# Default S values for OTS baseline (must match benchmark_winrate.py)
+OTS_S = {'SimBA': 10, 'SquareAttack': 8}
 VAL_DIR = Path('data/imagenet/val')
 RESULTS_DIR = Path('results')
 
@@ -97,7 +97,7 @@ def _run_naive(model, method, x, y_true_tensor, t_val, budget, device):
         targeted=False,
         early_stop=True,
         opportunistic=True,
-        stability_threshold=OT_S[method],
+        stability_threshold=OTS_S[method],
         naive_switch_iteration=t_val,
     )
 
@@ -127,10 +127,10 @@ def _run_naive(model, method, x, y_true_tensor, t_val, budget, device):
     }
 
 
-def _run_ot_baseline(model, method, x, y_true_tensor, budget, device):
-    """Run OT with default S as baseline."""
+def _run_ots_baseline(model, method, x, y_true_tensor, budget, device):
+    """Run OTS with default S as baseline."""
     y_true = y_true_tensor.item()
-    s_val = OT_S[method]
+    s_val = OTS_S[method]
 
     if method == 'SimBA':
         attack = SimBA(
@@ -218,7 +218,7 @@ def main():
     print(f"Epsilon: {EPSILON:.6f} ({EPSILON * 255:.0f}/255)")
     print(f"Methods: {METHODS}")
     print(f"T values: {t_values}")
-    print(f"OT baseline S: {OT_S}")
+    print(f"OTS baseline S: {OTS_S}")
     print(f"Images: {args.n_images} (seed={args.image_seed}), "
           f"slice [{args.image_start}:{args.image_end}]")
     print(f"Budget: {args.budget}")
@@ -256,7 +256,7 @@ def main():
         images.append((name, x, y_true))
         print(f"  {name}: true_label={y_true}")
 
-    # Build work queue: T values + OT baseline
+    # Build work queue: T values + OTS baseline
     jobs = []
     for method in methods:
         for t_val in t_values:
@@ -264,11 +264,11 @@ def main():
                 key = (method, str(t_val), image_name)
                 if key not in existing_keys:
                     jobs.append((method, str(t_val), t_val, image_name, x, y_true))
-        # OT baseline
+        # OTS baseline
         for image_name, x, y_true in images:
-            key = (method, 'OT', image_name)
+            key = (method, 'OTS', image_name)
             if key not in existing_keys:
-                jobs.append((method, 'OT', None, image_name, x, y_true))
+                jobs.append((method, 'OTS', None, image_name, x, y_true))
 
     total_runs = len(methods) * (len(t_values) + 1) * len(images)
     completed = total_runs - len(jobs)
@@ -287,8 +287,8 @@ def main():
     for method, t_label, t_val, image_name, x, y_true in jobs:
         y_true_tensor = torch.tensor([y_true], device=device)
 
-        if t_label == 'OT':
-            result = _run_ot_baseline(
+        if t_label == 'OTS':
+            result = _run_ots_baseline(
                 model, method, x, y_true_tensor, args.budget, device)
         else:
             result = _run_naive(

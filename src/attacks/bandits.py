@@ -220,7 +220,7 @@ class BanditsAttack(BaseAttack):
                         switched_to_targeted=opportunistic and switched_to_targeted if opportunistic else False,
                     )
 
-            # Check current prediction for early stop and OT
+            # Check current prediction for early stop and OTS
             with torch.no_grad():
                 logits = self.model(x_adv.unsqueeze(0))
                 current_pred = logits.argmax(dim=1).item()

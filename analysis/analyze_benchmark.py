@@ -403,7 +403,7 @@ def fig_difficulty_vs_savings(df: pd.DataFrame, outdir: str, model_order: list[s
     ax.axhline(0, color="black", linewidth=0.5, linestyle=":")
     ax.set_xlabel("Untargeted Iterations (difficulty)")
     ax.set_ylabel(r"Opportunistic Savings (\%)")
-    ax.set_title("Does Opportunistic Targeting Help More on Harder Images?")
+    ax.set_title("Does Opportunistic Target Selection Help More on Harder Images?")
     # Clip y-axis to readable range; annotate outliers
     ylo, yhi = -200, 100
     n_clipped = int((merged["savings_pct"] < ylo).sum())
@@ -497,7 +497,7 @@ def fig_lock_match(df: pd.DataFrame, outdir: str, model_order: list[str]):
 # ===========================================================================
 
 def fig_lock_match_robust(df: pd.DataFrame, outdir: str, model_order: list[str]):
-    """Lock-match rate for robust models: does OT lock onto the same class
+    """Lock-match rate for robust models: does OTS lock onto the same class
     that untargeted naturally reaches?
 
     Shows the collapse from standard-level match rates (~80%) to near-zero,
@@ -565,7 +565,7 @@ def fig_lock_match_robust(df: pd.DataFrame, outdir: str, model_order: list[str])
     ax.set_xticks(x)
     ax.set_xticklabels(models)
     ax.set_ylabel(r"Lock-Match Rate (\%)")
-    ax.set_title("Decoy Class Problem: OT Locks onto Wrong Class on Robust Models")
+    ax.set_title("Decoy Class Problem: OTS Locks onto Wrong Class on Robust Models")
     ax.set_ylim(0, 115)
     ax.legend()
     _savefig(fig, outdir, "fig_lock_match")
@@ -829,8 +829,8 @@ def _replay_attack(method_name, model, x, y_true_tensor, seed, opportunistic, de
     return attack.confidence_history
 
 
-def _best_ot_image(csv_path: str, model_name: str, method: str) -> tuple[str, int]:
-    """Find the image with the largest OT iteration savings for a given model/method.
+def _best_ots_image(csv_path: str, model_name: str, method: str) -> tuple[str, int]:
+    """Find the image with the largest OTS iteration savings for a given model/method.
 
     Returns (image_name, seed) for the run with the biggest iter_unt - iter_opp delta.
     """
@@ -876,7 +876,7 @@ def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda",
     bench_df = pd.read_csv(csv_path)
     cases = []
     for method in [m for m in METHODS if m in bench_df["method"].unique()]:
-        img_name, seed = _best_ot_image(csv_path, model_name, method)
+        img_name, seed = _best_ots_image(csv_path, model_name, method)
         img_path = _resolve_image_path(img_name)
         short = "Square Attack" if method == "SquareAttack" else method
         cases.append({
@@ -885,7 +885,7 @@ def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda",
             "seed": seed,
             "title": f"{short} — {model_name} — {img_name}",
         })
-        print(f"  Best OT showcase for {method}: {img_name} (seed={seed})")
+        print(f"  Best OTS showcase for {method}: {img_name} (seed={seed})")
 
     print(f"  Loading model for replay ({model_name}, {source}) ...")
     model = load_benchmark_model(model_name, source, device)
