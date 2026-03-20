@@ -613,8 +613,11 @@ input[type="range"]::-moz-range-track {
     font-family: 'Outfit', sans-serif;
     line-height: 1.7;
     min-height: 0;
+    width: 100%;
     color: var(--text-muted);
     letter-spacing: 0.02em;
+    align-self: flex-start;
+    text-align: left;
 }
 .results-text strong { color: var(--text); font-weight: 500; }
 
@@ -1306,6 +1309,8 @@ function renderResult(text) {
     if (!text) return '';
     return text
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/L∞/g, 'L<sub>∞</sub>')
+        .replace(/L2/g, 'L<sub>2</sub>')
         .replace(/\n\n/g, '<br>')
         .replace(/\n/g, '<br>');
 }
