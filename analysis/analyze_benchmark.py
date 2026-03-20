@@ -958,10 +958,12 @@ def fig_lockin(outdir: str, source: str = "standard", device_str: str = "cuda",
         # Vertical lock-in line
         if switch_iter is not None:
             ax.axvline(x=switch_iter, color="#2ECC71", linestyle=":", linewidth=1.5)
+            x_range = max(hist_unt["iterations"][-1], hist_opp["iterations"][-1]) if hist_unt["iterations"] and hist_opp["iterations"] else 1
+            offset = x_range * 0.05
             ax.annotate(
                 f"Lock-in @ {switch_iter}",
                 xy=(switch_iter, 0.92),
-                xytext=(switch_iter + 200, 0.95),
+                xytext=(switch_iter + offset, 0.95),
                 fontsize=8, color="#2ECC71",
                 arrowprops=dict(arrowstyle="->", color="#2ECC71", lw=0.8),
             )
