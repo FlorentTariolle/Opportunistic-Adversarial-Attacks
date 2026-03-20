@@ -33,7 +33,7 @@ for i in $(seq 0 $((N_WORKERS - 1))); do
     END=$(( (i + 1) * CHUNK ))
     [ $END -gt $N_IMAGES ] && END=$N_IMAGES
     [ $START -ge $N_IMAGES ] && continue
-    python -u benchmarks/multiseed.py --image-start $START --image-end $END > slurm/logs/worker_${i}.err 2>&1 &
+    timeout 28500 python -u benchmarks/multiseed.py --image-start $START --image-end $END > slurm/logs/worker_${i}.err 2>&1 &
 done
 wait
 
