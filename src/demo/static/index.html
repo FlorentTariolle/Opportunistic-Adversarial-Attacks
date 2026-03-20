@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Adversarial Attack Demonstrator</title>
+<title>Black-Box Adversarial Attack Demonstrator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -833,7 +833,7 @@ input[type="range"]::-moz-range-track {
 <div class="app">
     <!-- Header -->
     <div class="header">
-        <h1>Adversarial Attack Demonstrator</h1>
+        <h1>Black-Box Adversarial Attack Demonstrator</h1>
         <div class="header-right">
             <span class="gpu-badge" id="gpu-badge">Detecting GPU...</span>
             <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
@@ -992,8 +992,8 @@ input[type="range"]::-moz-range-track {
                             </svg>
                         </div>
                     </div>
-                    <span class="compare-label label-before">Original</span>
-                    <span class="compare-label label-after">Adversarial</span>
+                    <span class="compare-label label-before">Adversarial</span>
+                    <span class="compare-label label-after">Original</span>
                 </div>
             </div>
             <div class="prediction" id="prediction-text"></div>
@@ -1286,6 +1286,10 @@ async function runAttack() {
 
     cancelAttack(); // cancel any previous
     attackController = new AbortController();
+
+    // Hide previous comparison slider and restore input preview
+    document.getElementById('img-compare').classList.add('hidden');
+    document.getElementById('input-preview').classList.remove('hidden');
 
     const btn = document.getElementById('run-btn');
     btn.disabled = true;
