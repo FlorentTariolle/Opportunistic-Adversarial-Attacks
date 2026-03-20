@@ -252,7 +252,11 @@ With only 50 images per model, targeting mode showed no statistically significan
 \subsection{Ablations}\label{sec:ablations}
 Sweeping the stability threshold $S \in \{2, \ldots, 15\}$ on ResNet-50 (100 images, 15K budget) shows at most 2.1 pp variation in success rate (Appendix~\ref{app:ablation-details}). A stronger test removes the stability mechanism entirely: a \textbf{fixed-iteration switch} at iteration $T$ with no stability check yields indistinguishable results for all $T \in \{5, \ldots, 500\}$. We recommend the fixed-iteration switch as the default.
 
-Two further ablations isolate what drives OTS's benefit. First, \textbf{targeting a random non-true class} is catastrophic: success drops to 14\% for SimBA and 53\% for Square Attack (CE), far below untargeted baselines (43\% and 81\%). Target \emph{selection} matters, not just directional commitment. Second, \textbf{targeting the clean-image argmax} ($T = 0$, no exploration) nearly matches OTS: 79\% vs.\ 80\% for SimBA and 96\% vs.\ 96\% for Square Attack (CE). However, Square Attack with a short exploration ($T = 5$) reaches 99\%, a 3~pp gain over $T = 0$. Since the exploration phase costs less than 1\% of a typical budget, it provides cheap insurance against edge cases where early perturbation steps reveal a better target than the clean-image ranking. Other target-selection heuristics exist (e.g., least-likely class, nearest class by embedding distance), but they require either full-vector knowledge before the attack begins or access to an embedding space. OTS's advantage is that it requires no \textit{a priori} target-class knowledge beyond what the attack's own trajectory reveals.
+Two further ablations isolate what drives OTS's benefit. First, \textbf{targeting a random non-true class} is catastrophic: success drops to 14\% for SimBA and 53\% for Square Attack (CE), far below untargeted baselines (43\% and 81\%). Target \emph{selection} matters, not just directional commitment. Second, \textbf{targeting the clean-image argmax} ($T = 0$, no exploration) nearly matches OTS: 79\% vs.\ 80\% for SimBA and 96\% vs.\ 96\% for Square Attack (CE). However, Square Attack with a short exploration ($T = 5$) reaches 99\%, a 3~pp gain over $T = 0$. Since the exploration phase costs less than 1\% of a typical budget, it provides cheap insurance against edge cases where early perturbation steps reveal a better target than the clean-image ranking.
+
+A \textbf{target-class overlap analysis} (Figure~\ref{fig:target-overlap}) clarifies why. We compare OTS's locked class and the trajectory oracle class against the clean-image top-$K$ non-true classes on ResNet-50. SimBA locks onto the clean-image top-1 class in 100\% of runs, explaining its near-identical performance to $T = 0$: SimBA's small coordinate perturbations do not disrupt the initial ranking. Square Attack shows lower overlap (64\% at top-1, 81\% at top-10), because random-patch perturbations are more disruptive; this is why exploration provides a measurable gain for Square Attack but not SimBA. Notably, the trajectory oracle class falls \emph{outside} the clean-image top-1 in 19\% (SimBA) to 53\% (Square Attack) of cases, confirming that the oracle ceiling is trajectory-specific rather than geometry-optimal. A stronger geometry-based oracle (e.g., best-of-$K$ probes) would likely outperform the trajectory oracle, but it would also outperform OTS at proportional query cost; the practical comparison remains OTS vs.\ untargeted, where OTS's gains are clear.
+
+Other target-selection heuristics exist (e.g., least-likely class, nearest class by embedding distance), but they require either full-vector knowledge before the attack begins or access to an embedding space. OTS's advantage is that it requires no \textit{a priori} target-class knowledge beyond what the attack's own trajectory reveals.
 
 \textbf{Summary.} Opportunistic Target Selection demonstrates that the information needed to select an effective adversarial target is already latent in the attack's trajectory. By switching to a targeted objective at any small fixed iteration count, OTS eliminates the class drift that plagues probability-minimization and CE losses. On standard models with random-search attacks, OTS provides significant gains: up to +27 pp in success rate and 43\% in censored-mean iteration reduction on ResNet-50. On attacks with built-in directionality (Bandits, Square Attack with margin loss), OTS is redundant, reinforcing the margin-surrogate interpretation. On robust models, targeting is neutral due to a bimodal difficulty distribution.
 
@@ -301,6 +305,13 @@ Testing on settings where switch timing may matter more (larger $\epsilon$, CIFA
 
 \clearpage
 \section{Ablation Details}\label{app:ablation-details}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{../results/figures_target_overlap/fig_target_overlap.pdf}
+\caption{Overlap between OTS's locked class (or the trajectory oracle class) and the clean-image top-$K$ non-true classes (ResNet-50). SimBA always locks onto the clean-image top-1; Square Attack's random-patch perturbations disrupt the ranking more, explaining why a short exploration phase helps for Square Attack but not SimBA.}
+\label{fig:target-overlap}
+\end{figure}
 
 \begin{figure}[htbp]
 \centering
